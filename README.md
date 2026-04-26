@@ -8,7 +8,7 @@
 </p>
 
 ## Why AgentGlass?
-When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors—an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls. 
+When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls. 
 
 Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, charge per trace, and force you to send sensitive enterprise context to third-party servers.
 
@@ -94,35 +94,6 @@ async for event in instrumented_app.astream({"messages": [...]}, stream_mode="va
 
 ### 3. Open the Dashboard!
 Navigate to `http://localhost:3000` in your browser. As your Python agents execute, the graph will populate in real-time.
-
----
-
-## [Deploy Dashboard on Vercel]
-
-You can deploy `apps/dashboard` as a public showcase URL.
-
-### 1. Import the repo in Vercel
-- Framework preset: `Next.js`
-- Root Directory: `apps/dashboard`
-- Install Command: `pnpm install --frozen-lockfile`
-- Build Command: `pnpm build`
-- Output Directory: `.next`
-
-### 2. Optional env vars
-
-If you have a reachable daemon/API server, set:
-- `NEXT_PUBLIC_DAEMON_HTTP_URL=https://your-daemon-host`
-- `NEXT_PUBLIC_DAEMON_WS_URL=wss://your-daemon-host/ws` (optional; inferred from HTTP URL if omitted)
-
-If no daemon is configured, the dashboard now auto-loads a built-in demo trace on hosted domains so your Vercel URL still has interactive content to showcase.
-
-You can disable that behavior with:
-- `NEXT_PUBLIC_DEMO_FALLBACK=false`
-
-### 3. Redeploy
-After setting env vars, trigger a redeploy from Vercel. The dashboard will either:
-- connect to your live daemon, or
-- fall back to demo data when running as a hosted showcase.
 
 ---
 
