@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <title>AgentGlass Icon</title>
+  <defs>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    
+    <linearGradient id="mintGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a7f3d0" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+
+  <path d="M60 12 L108 60 L60 108 L12 60 Z" fill="#020617" />
+  
+  <path d="M60 12 L108 60 L60 108 L12 60 Z" fill="none" stroke="url(#emeraldGrad)" stroke-width="14" stroke-linejoin="round"/>
+  
+  <path d="M12 60 L60 60 L60 12" fill="none" stroke="url(#mintGrad)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <circle cx="60" cy="60" r="14" fill="#ffffff" />
+</svg>

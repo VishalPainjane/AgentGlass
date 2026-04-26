@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, GitBranch, Database, Settings, Moon, Sun } from "lucide-react";
+import { Activity, GitBranch, Database, Settings, BookOpen, Moon, Sun } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -25,10 +25,11 @@ export default function Sidebar() {
   };
 
   const links = [
-    { name: "Live Graph", href: "/", icon: Activity },
+    { name: "Live Graph", href: "/live", icon: Activity },
     { name: "Compare Traces", href: "/compare", icon: GitBranch },
     { name: "Cache Manager", href: "/cache", icon: Database },
     { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Documentation", href: "/docs", icon: BookOpen },
   ];
 
   return (

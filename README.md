@@ -7,10 +7,6 @@
   <img src="./.github/assets/screenshot.png" alt="AgentGlass Dashboard" width="800"/>
 </p>
 
-<p align="center">
-  <img src="./Planner/Interface_agentglass.png" alt="AgentGlass Interface" width="1100"/>
-</p>
-
 ## Why AgentGlass?
 When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors—an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls. 
 

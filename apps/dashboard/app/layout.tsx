@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
+import AppShell from "./components/AppShell";
 
 const sans = Space_Grotesk({
   subsets: ["latin"],
@@ -15,23 +16,16 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentGlass — Local-First Agent Debugger",
+  title: "AgentGlass - Agent Observability, Local-First",
   description:
-    "Open-source, local time-travel debugging and observability for multi-agent LLM systems. Zero data egress, zero cost.",
+    "Open-source, local-first observability and time-travel debugging for autonomous multi-agent systems.",
 };
-
-import Sidebar from "./components/Sidebar";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body>
-        <div className="app-container">
-          <Sidebar />
-          <main className="main-content">
-            {children}
-          </main>
-        </div>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
