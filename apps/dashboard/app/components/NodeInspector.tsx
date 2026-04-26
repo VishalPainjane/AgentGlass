@@ -19,6 +19,7 @@ import {
   deriveNodesFromEvents,
 } from "../lib/eventHelpers";
 import { useSelectedTraceEvents } from "../hooks/useTraceStore";
+import { daemonHttp } from "../lib/daemonApi";
 
 // Lazy load Monaco to avoid SSR issues
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -49,7 +50,7 @@ export function useHydratedPayload(payload: any) {
   useEffect(() => {
     if (isBlobRef(payload)) {
       setIsLoadingBlob(true);
-      fetch(`http://127.0.0.1:7777/v1/blobs/${payload.$blob}`)
+      fetch(daemonHttp(`/v1/blobs/${payload.$blob}`))
         .then(res => res.json())
         .then(data => setHydrated(data))
         .catch(err => {
@@ -150,7 +151,7 @@ export default function NodeInspector() {
         payload: parsedPayload,
       };
 
-      const res = await fetch("http://127.0.0.1:7777/v1/events", {
+      const res = await fetch(daemonHttp("/v1/events"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(injectEvent),
@@ -173,7 +174,7 @@ export default function NodeInspector() {
       setIsAnalyzing(true);
       setActiveTab("analysis");
       const traceId = useTraceStore.getState().selectedTraceId || nodeEvents[0]?.trace_id;
-      const res = await fetch(`http://127.0.0.1:7777/v1/traces/${traceId}/spans/${node.spanId}/analyze`);
+      const res = await fetch(daemonHttp(`/v1/traces/${traceId}/spans/${node.spanId}/analyze`));
       if (!res.ok) throw new Error("Analysis failed");
       const data = await res.json();
       setAnalysisContent(data);

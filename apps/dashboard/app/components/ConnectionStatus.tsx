@@ -15,7 +15,10 @@ const STATUS_MAP = {
 
 export default function ConnectionStatus() {
   const connectionStatus = useTraceStore((s) => s.connectionStatus);
-  const { color, label } = STATUS_MAP[connectionStatus];
+  const isDemoMode = useTraceStore((s) => s.isDemoMode);
+  const { color, label } = isDemoMode
+    ? { color: "#60a5fa", label: "Demo Mode" }
+    : STATUS_MAP[connectionStatus];
 
   return (
     <div className="connection-status">

@@ -7,11 +7,13 @@
 import ConnectionStatus from "./ConnectionStatus";
 import TraceSelector from "./TraceSelector";
 import { useTraceStore } from "../hooks/useTraceStore";
+import { daemonHttp } from "../lib/daemonApi";
 
 export default function TopBar({ mode = "primary" }: { mode?: "primary" | "compare" }) {
   const events = useTraceStore((s) => s.events);
   const traces = useTraceStore((s) => s.traces);
   const selectedTraceId = useTraceStore((s) => s.selectedTraceId);
+  const isDemoMode = useTraceStore((s) => s.isDemoMode);
 
   return (
     <header className="topbar">
@@ -38,7 +40,7 @@ export default function TopBar({ mode = "primary" }: { mode?: "primary" | "compa
       <div className="topbar-right">
         {mode !== "compare" && selectedTraceId && (
           <a
-            href={`http://127.0.0.1:7777/v1/traces/${selectedTraceId}/export`}
+            href={daemonHttp(`/v1/traces/${selectedTraceId}/export`)}
             download
             className="topbar-export-btn"
             title="Export as Pytest Unit Test"
@@ -46,6 +48,7 @@ export default function TopBar({ mode = "primary" }: { mode?: "primary" | "compa
             Export Pytest
           </a>
         )}
+        {isDemoMode && <span className="topbar-demo-badge">Demo Data</span>}
         <span className="topbar-event-count">
           {events.length} events • {traces.length} traces
         </span>

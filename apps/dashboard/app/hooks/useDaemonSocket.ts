@@ -11,11 +11,15 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useTraceStore } from "./useTraceStore";
 import type { PersistedEvent } from "../lib/eventHelpers";
+import { getDaemonWsUrl, isLocalhostHost } from "../lib/daemonApi";
+import { createDemoTraceEvents } from "../lib/demoTrace";
 
 const DAEMON_WS_URL =
   typeof window !== "undefined"
-    ? process.env.NEXT_PUBLIC_DAEMON_WS_URL ?? "ws://127.0.0.1:7777/ws"
+    ? getDaemonWsUrl()
     : "ws://127.0.0.1:7777/ws";
+const HAS_CUSTOM_DAEMON_WS_URL = Boolean(process.env.NEXT_PUBLIC_DAEMON_WS_URL);
+const DEMO_FALLBACK_ENABLED = process.env.NEXT_PUBLIC_DEMO_FALLBACK !== "false";
 
 const BASE_RECONNECT_MS = 1000;
 const MAX_RECONNECT_MS = 16000;
@@ -28,6 +32,22 @@ export function useDaemonSocket(): void {
   const addEvent = useTraceStore((s) => s.addEvent);
   const bootstrap = useTraceStore((s) => s.bootstrap);
   const setConnectionStatus = useTraceStore((s) => s.setConnectionStatus);
+  const setDemoMode = useTraceStore((s) => s.setDemoMode);
+
+  const canUseDemoFallback =
+    typeof window !== "undefined" &&
+    DEMO_FALLBACK_ENABLED &&
+    !HAS_CUSTOM_DAEMON_WS_URL &&
+    !isLocalhostHost(window.location.hostname);
+
+  const loadDemoTrace = useCallback(() => {
+    const state = useTraceStore.getState();
+    if (state.events.length > 0) return;
+
+    bootstrap(createDemoTraceEvents());
+    setDemoMode(true);
+    setConnectionStatus("connected");
+  }, [bootstrap, setConnectionStatus, setDemoMode]);
 
   const connect = useCallback(() => {
     // Clean up previous connection
@@ -44,6 +64,7 @@ export function useDaemonSocket(): void {
 
       ws.onopen = () => {
         reconnectAttempt.current = 0;
+        setDemoMode(false);
         setConnectionStatus("connected");
       };
 
@@ -73,9 +94,14 @@ export function useDaemonSocket(): void {
       setConnectionStatus("disconnected");
       scheduleReconnect();
     }
-  }, [addEvent, bootstrap, setConnectionStatus]);
+  }, [addEvent, bootstrap, setConnectionStatus, setDemoMode]);
 
   const scheduleReconnect = useCallback(() => {
+    if (canUseDemoFallback && reconnectAttempt.current >= 2) {
+      loadDemoTrace();
+      return;
+    }
+
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current);
     }
@@ -90,7 +116,7 @@ export function useDaemonSocket(): void {
     reconnectTimer.current = setTimeout(() => {
       connect();
     }, delay);
-  }, [connect]);
+  }, [canUseDemoFallback, connect, loadDemoTrace]);
 
   useEffect(() => {
     connect();

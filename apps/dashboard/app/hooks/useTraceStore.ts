@@ -16,6 +16,7 @@ interface TraceStoreState {
   compareTraceId: string | null;
   selectedSpanId: string | null;
   connectionStatus: ConnectionStatus;
+  isDemoMode: boolean;
   
   /* --- time travel --- */
   playbackTimestamp: number | null; // If null, tracking live edge. Otherwise, timestamp to replay to.
@@ -29,6 +30,7 @@ interface TraceStoreState {
   selectNode: (spanId: string | null) => void;
   setEvents: (events: PersistedEvent[]) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
+  setDemoMode: (isDemoMode: boolean) => void;
   setPlaybackTimestamp: (timestamp: number | null) => void;
   clearEvents: () => void;
 }
@@ -44,6 +46,7 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
   compareTraceId: null,
   selectedSpanId: null,
   connectionStatus: "connecting",
+  isDemoMode: false,
   playbackTimestamp: null,
 
   addEvent: (event) => {
@@ -120,10 +123,11 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
   setEvents: (events) => set({ events }),
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
+  setDemoMode: (isDemoMode) => set({ isDemoMode }),
   
   setPlaybackTimestamp: (timestamp) => set({ playbackTimestamp: timestamp }),
 
-  clearEvents: () => set({ events: [], traces: [], selectedTraceId: null, compareTraceId: null, selectedSpanId: null, playbackTimestamp: null }),
+  clearEvents: () => set({ events: [], traces: [], selectedTraceId: null, compareTraceId: null, selectedSpanId: null, playbackTimestamp: null, isDemoMode: false }),
 }));
 
 /* ------------------------------------------------------------------ */
