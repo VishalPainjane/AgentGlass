@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>🔍 AgentGlass</h1>
+  <h1>AgentGlass</h1>
   <p><strong>The Local-First Observability & Time-Travel Debugger for Autonomous AI Agents.</strong></p>
 </div>
 
@@ -16,22 +16,22 @@ Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, char
 
 ---
 
-## ⚡ Features
+## [Features]
 
-- 🛑 **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine. 
-- ⏱️ **Deterministic Time-Travel:** Use the timeline scrubber to perfectly rewind your multi-agent execution graph to the exact microsecond an error occurred.
-- 🔀 **GitFork (Execution Branching):** Compare alternative execution paths side-by-side. Did tweaking a prompt break downstream tools? Visually diff terminal payloads directly in the dashboard without writing mock tests.
-- 📼 **VCR LLM Cache:** Save real API dollars during iterative debugging. Wrap LLM calls with `@agentglass_vcr` to deterministically cache API responses locally and replay them in `0.00s`.
-- 💉 **Interactive State Injection:** Set visual breakpoints, edit payloads directly in the browser's Monaco Editor, and inject new state directly into a paused python execution.
-- 🎨 **Light & Dark Mode:** Sleek glassmorphic UI equipped with a first-class Light/Dark mode toggle to fit your working environment.
-- 🦜 **First-Class Framework Support:** Deep auto-instrumentation for LangGraph.
-- 🔭 **OpenTelemetry Native:** Drop-in `AgentGlassSpanProcessor` seamlessly converts standard OTel spans into AgentGlass events. No need to rewrite your instrumentation.
-- 📦 **Blob Payload Offloading:** Massive LLM context payloads are intelligently offloaded to a local `.agentglass/blobs` directory, ensuring your UI and DB stay ultra-fast.
-- 🛡️ **Idempotent Telemetry:** Built-in deduplication handles flaky network flushes and prevents duplicate telemetry events.
+- [-] **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine. 
+- [-] **Deterministic Time-Travel:** Use the timeline scrubber to perfectly rewind your multi-agent execution graph to the exact microsecond an error occurred.
+- [-] **GitFork (Execution Branching):** Compare alternative execution paths side-by-side. Did tweaking a prompt break downstream tools? Visually diff terminal payloads directly in the dashboard without writing mock tests.
+- [-] **VCR LLM Cache:** Save real API dollars during iterative debugging. Wrap LLM calls with `@agentglass_vcr` to deterministically cache API responses locally and replay them in `0.00s`.
+- [-] **Interactive State Injection:** Set visual breakpoints, edit payloads directly in the browser's Monaco Editor, and inject new state directly into a paused python execution.
+- [-] **Light & Dark Mode:** Sleek glassmorphic UI equipped with a first-class Light/Dark mode toggle to fit your working environment.
+- [-] **First-Class Framework Support:** Deep auto-instrumentation for LangGraph.
+- [-] **OpenTelemetry Native:** Drop-in `AgentGlassSpanProcessor` seamlessly converts standard OTel spans into AgentGlass events. No need to rewrite your instrumentation.
+- [-] **Blob Payload Offloading:** Massive LLM context payloads are intelligently offloaded to a local `.agentglass/blobs` directory, ensuring your UI and DB stay ultra-fast.
+- [-] **Idempotent Telemetry:** Built-in deduplication handles flaky network flushes and prevents duplicate telemetry events.
 
 ---
 
-## 🚀 Quick Start
+## [Quick Start]
 
 ### 1. Start the AgentGlass Local Stack
 You can run the Daemon and Dashboard via the CLI or NPX.
@@ -97,7 +97,7 @@ Navigate to `http://localhost:3000` in your browser. As your Python agents execu
 
 ---
 
-## 🏗️ Monorepo Structure
+## [Monorepo Structure]
 
 - `apps/dashboard` - The React 19 / Next.js glassmorphism control center. Uses Zustand for deterministic timeline slicing.
 - `apps/daemon` - Express/WebSocket ingest server backed by `better-sqlite3`.
@@ -107,7 +107,7 @@ Navigate to `http://localhost:3000` in your browser. As your Python agents execu
 
 ---
 
-## 🧪 Advanced Workflows
+## [Advanced Workflows]
 
 ### 1. State Injection
 AgentGlass allows you to pause your agents and modify their memory from the dashboard!
@@ -151,6 +151,3 @@ Use the new **Compare Traces** page to visually diff two different execution run
 
 ## License
 MIT
-
-
-
