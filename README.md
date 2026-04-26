@@ -4,7 +4,7 @@
 </div>
 
 <p align="center">
-  <img src="./.github/assets/screenshot.png" alt="AgentGlass Dashboard" width="800"/>
+  <img src="./Planner/Interface_agentglass.png" alt="AgentGlass Interface" width="1100"/>
 </p>
 
 ## Why AgentGlass?
