@@ -1,0 +1,6 @@
+please maintain a proper documentation of the thing that are been updated and changed...and things that are been descused about the proejct or features...anything everything.....so that if i am use some different ide that the atmost proitiy is to refer those doc to get the context of what is going on and what all things are been completed and what is working and what not.....
+
+the top bar is not working fine...there are some issue with the drop down...and the choice selection doesnt open the coresponding model....also there are lots of issue with the compare traces feature....it seems that everything is just hardcoded....make it work as stated
+
+pnpm --filter @agentglass/cli dev up
+pnpm dev:up
