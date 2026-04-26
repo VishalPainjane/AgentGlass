@@ -1,0 +1,26 @@
+{
+  "name": "@agentglass/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "agentglass": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "start": "node dist/index.js",
+    "lint": "echo No lint configured for cli yet",
+    "test": "echo No tests configured for cli yet",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}
