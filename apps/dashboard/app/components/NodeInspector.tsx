@@ -257,32 +257,70 @@ export default function NodeInspector() {
             )}
           </div>
 
-          {/* Monaco Editor */}
-          <div className="inspector-editor">
-            <MonacoEditor
-              height="100%"
-              language="json"
-              theme="vs-dark"
-              value={editedContent}
-              onChange={(val) => setEditedContent(val ?? "")}
-              options={{
-                readOnly: activeTab === "events" || activeTab === "analysis",
-                minimap: { enabled: false },
-                fontSize: 13,
-                fontFamily: "var(--font-mono), monospace",
-                lineNumbers: "off",
-                scrollBeyondLastLine: false,
-                wordWrap: "on",
-                padding: { top: 12, bottom: 12 },
-                renderLineHighlight: "none",
-                overviewRulerBorder: false,
-                hideCursorInOverviewRuler: true,
-                scrollbar: {
-                  verticalScrollbarSize: 6,
-                  horizontalScrollbarSize: 6,
-                },
-              }}
-            />
+          {/* Monaco Editor or RCA View */}
+          <div className="inspector-editor" style={{ overflowY: "auto" }}>
+            {activeTab === "analysis" ? (
+              <div style={{ padding: "16px", color: "var(--foreground)", fontFamily: "var(--font-sans)", display: "flex", flexDirection: "column", gap: "12px" }}>
+                {isAnalyzing ? (
+                  <div style={{ color: "#a855f7" }}>✨ Analyzing root cause locally...</div>
+                ) : analysisContent?.error ? (
+                  <div style={{ color: "#f87171" }}>{analysisContent.error}</div>
+                ) : analysisContent ? (
+                  <>
+                    <div>
+                      <h4 style={{ color: "#f87171", margin: "0 0 4px 0" }}>Root Cause</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem" }}>{analysisContent.rootCause}</p>
+                    </div>
+                    <div>
+                      <h4 style={{ color: "#a855f7", margin: "0 0 4px 0" }}>Explanation</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem", whiteSpace: "pre-wrap" }}>{analysisContent.explanation}</p>
+                    </div>
+                    <div>
+                      <h4 style={{ color: "#4ade80", margin: "0 0 4px 0" }}>Suggested Fix</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem", whiteSpace: "pre-wrap" }}>{analysisContent.suggestedFix}</p>
+                    </div>
+                    {analysisContent.origin_span_id && (
+                      <button 
+                        onClick={() => selectNode(analysisContent.origin_span_id)}
+                        style={{ marginTop: "8px", alignSelf: "flex-start", padding: "8px 16px", backgroundColor: "rgba(59, 130, 246, 0.2)", color: "#60a5fa", borderRadius: "6px", cursor: "pointer", border: "1px solid #3b82f6" }}
+                      >
+                        ↗ Jump to Origin Node
+                      </button>
+                    )}
+                    <div style={{ marginTop: "8px", fontSize: "0.8rem", opacity: 0.6 }}>
+                      Model: {analysisContent.model} • Confidence: {(analysisContent.confidence * 100).toFixed(0)}%
+                    </div>
+                  </>
+                ) : (
+                  <div>No analysis available. Click "Auto-Analyze" above.</div>
+                )}
+              </div>
+            ) : (
+              <MonacoEditor
+                height="100%"
+                language="json"
+                theme="vs-dark"
+                value={editedContent}
+                onChange={(val) => setEditedContent(val ?? "")}
+                options={{
+                  readOnly: activeTab === "events",
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  fontFamily: "var(--font-mono), monospace",
+                  lineNumbers: "off",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  padding: { top: 12, bottom: 12 },
+                  renderLineHighlight: "none",
+                  overviewRulerBorder: false,
+                  hideCursorInOverviewRuler: true,
+                  scrollbar: {
+                    verticalScrollbarSize: 6,
+                    horizontalScrollbarSize: 6,
+                  },
+                }}
+              />
+            )}
           </div>
 
           {/* Action Row */}

@@ -20,6 +20,8 @@ import {
   getTraces,
   closeDb,
   dbPath,
+  insertRcaResult,
+  getRcaResult,
   type PersistedEventRow,
 } from "./db";
 import { writeBlob, readBlob } from "./blobStore";
@@ -351,6 +353,18 @@ const server = createServer(async (req, res) => {
   if (req.method === "GET" && analyzeMatch) {
     const traceId = analyzeMatch[1];
     const spanId = analyzeMatch[2];
+
+    const cached = getRcaResult(traceId, spanId);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached.analysis);
+        sendJson(res, 200, parsed);
+        return;
+      } catch (e) {
+        // Fallback to re-analyze if cache is somehow invalid
+      }
+    }
+
     const events = getEventsByTrace(traceId).map((row) => {
       const obj = rowToJson(row);
       obj.payload = resolvePayload(obj.payload);
@@ -369,35 +383,75 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // In a real platform, this would call Ollama or an external LLM
+    const modelName = process.env.AGENTGLASS_RCA_MODEL || "llama3.2:3b";
     const errorMessage = (errorEvent.payload as any)?.message || "Unknown error";
+    const nodeName = (errorEvent as any).node_name || "Unknown node";
     
-    // Create a convincing AI explanation
-    let rootCause = "Unexpected application exception.";
-    let fix = "Review the recent changes to the application code or state payloads.";
-    
-    if (errorMessage.includes("Timeout")) {
-      rootCause = "The external service failed to respond within the expected SLA timeframe.";
-      fix = "Increase the 'timeout' parameter in the external API client. Consider implementing exponential backoff retries if external services are flaky.";
-    } else if (errorMessage.toLowerCase().includes("validation") || errorMessage.toLowerCase().includes("pydantic")) {
-      rootCause = "The local agent's response payload failed to match the strict Pydantic JSON schema format.";
-      fix = "Add strict strict 'response_format={ \"type\": \"json_object\" }' to the orchestrator model request, and ensure your system prompts strongly enforce correct types.";
-    } else if (errorMessage.toLowerCase().includes("hallucinat")) {
-      rootCause = "Safety threshold triggered by ungrounded output.";
-      fix = "Add a self-reflection loop to the agent graph so it can re-verify facts against retrieved knowledge before committing the final state.";
+    // Get preceding 5 events
+    const sortedEvents = events.sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0));
+    const errorIndex = sortedEvents.findIndex((e: any) => e.span_id === spanId && e.event_type === 'error');
+    const recentEvents = sortedEvents.slice(Math.max(0, errorIndex - 5), Math.max(0, errorIndex));
+
+    const prompt = `Analyze the following error in an AI agent system.
+Agent Node: ${nodeName}
+Error Message: ${errorMessage}
+Recent Events context:
+${JSON.stringify(recentEvents.map((e: any) => ({ type: e.event_type, node: e.node_name, payload: e.payload })), null, 2)}
+
+Provide a JSON response with the following keys:
+- rootCause (string): A short sentence explaining the root cause.
+- explanation (string): A detailed explanation of why it failed.
+- suggestedFix (string): A concrete suggestion to fix the issue.
+- origin_span_id (string | null): If the root cause originated from a specific previous event in the provided context, output its span_id here. Otherwise null.
+- confidence (number): A float between 0 and 1 indicating your confidence.
+
+Do not output any markdown code blocks, only the raw JSON.`;
+
+    try {
+      const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelName,
+          prompt: prompt,
+          stream: false,
+          format: "json",
+        }),
+      });
+
+      if (!ollamaRes.ok) {
+        throw new Error(`Ollama responded with status: ${ollamaRes.status}`);
+      }
+
+      const ollamaData = (await ollamaRes.json()) as any;
+      const rawText = ollamaData.response;
+      const parsedAnalysis = JSON.parse(rawText);
+
+      const finalAnalysis = {
+        model: modelName,
+        rootCause: parsedAnalysis.rootCause || "Unknown root cause",
+        explanation: parsedAnalysis.explanation || "No explanation provided.",
+        suggestedFix: parsedAnalysis.suggestedFix || "No fix suggested.",
+        origin_span_id: parsedAnalysis.origin_span_id || null,
+        confidence: parsedAnalysis.confidence || 0.8,
+      };
+
+      insertRcaResult(traceId, spanId, JSON.stringify(finalAnalysis));
+      sendJson(res, 200, finalAnalysis);
+    } catch (e) {
+      console.error("[Ollama RCA] Error:", e);
+      
+      // Fallback if Ollama is not available
+      const fallbackAnalysis = {
+        model: "Fallback Mock Analysis (Ollama not reachable)",
+        rootCause: "Unexpected application exception.",
+        explanation: `Analysis of trace ID ${traceId.slice(0, 8)}:\nThe \`${nodeName}\` agent threw an exception.\n\nError message:\n>>> ${errorMessage}\n\nThe system could not reach the local Ollama instance (${modelName}) at http://localhost:11434 to perform a real root-cause analysis.`,
+        suggestedFix: `Ensure Ollama is installed, running, and the correct model is pulled (\`ollama run ${modelName}\`).`,
+        origin_span_id: null,
+        confidence: 0.0,
+      };
+      sendJson(res, 200, fallbackAnalysis);
     }
-
-    const mockAnalysis = {
-        model: "Local Llama-3 (Quantized 4-bit)",
-        rootCause,
-        explanation: `Analysis of trace ID ${traceId.slice(0, 8)}:\nThe \`${(errorEvent as any).node_name}\` agent threw an exception.\n\nError message:\n>>> ${errorMessage}\n\nThe system identified a mismatch between the expected execution flow and the agent behavior bounds.`,
-        suggestedFix: fix,
-        confidence: 0.94,
-    };
-
-    setTimeout(() => {
-        sendJson(res, 200, mockAnalysis);
-    }, 1200); // Slight delay for realistic LLM simulation
     return;
   }
 

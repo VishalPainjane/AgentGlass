@@ -8,7 +8,8 @@
 </p>
 
 ## Why AgentGlass?
-When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls. 
+
+When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls.
 
 Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, charge per trace, and force you to send sensitive enterprise context to third-party servers.
 
@@ -18,7 +19,7 @@ Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, char
 
 ## [Features]
 
-- [-] **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine. 
+- [-] **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine.
 - [-] **Deterministic Time-Travel:** Use the timeline scrubber to perfectly rewind your multi-agent execution graph to the exact microsecond an error occurred.
 - [-] **GitFork (Execution Branching):** Compare alternative execution paths side-by-side. Did tweaking a prompt break downstream tools? Visually diff terminal payloads directly in the dashboard without writing mock tests.
 - [-] **VCR LLM Cache:** Save real API dollars during iterative debugging. Wrap LLM calls with `@agentglass_vcr` to deterministically cache API responses locally and replay them in `0.00s`.
@@ -34,6 +35,7 @@ Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, char
 ## [Quick Start]
 
 ### 1. Start the AgentGlass Local Stack
+
 You can run the Daemon and Dashboard via the CLI or NPX.
 
 ```bash
@@ -41,22 +43,25 @@ npx @agentglass/cli up
 ```
 
 Or, using this monorepo locally:
+
 ```bash
 pnpm install
 pnpm build
 pnpm dev:up
 ```
 
-*This starts the Daemon on `http://127.0.0.1:7777` and the Dashboard on `http://localhost:3000`.*
+_This starts the Daemon on `http://127.0.0.1:7777` and the Dashboard on `http://localhost:3000`._
 
 ### 2. Instrument Your Python Agents
 
 Install the Python SDK:
+
 ```bash
 pip install agentglass-python
 ```
 
 **Using Native SDK (Zero-config Context Propagation):**
+
 ```python
 from agentglass_python import AgentGlassClient
 
@@ -70,6 +75,7 @@ with client.create_span("agent_start", "ResearcherAgent", {"query": "Quantum gra
 ```
 
 **Using OpenTelemetry:**
+
 ```python
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -82,6 +88,7 @@ trace.set_tracer_provider(provider)
 ```
 
 **Using LangGraph:**
+
 ```python
 from agentglass_python.langgraph_adapter import instrument_langgraph
 
@@ -93,6 +100,7 @@ async for event in instrumented_app.astream({"messages": [...]}, stream_mode="va
 ```
 
 ### 3. Open the Dashboard!
+
 Navigate to `http://localhost:3000` in your browser. As your Python agents execute, the graph will populate in real-time.
 
 ---
@@ -110,6 +118,7 @@ Navigate to `http://localhost:3000` in your browser. As your Python agents execu
 ## [Advanced Workflows]
 
 ### 1. State Injection
+
 AgentGlass allows you to pause your agents and modify their memory from the dashboard!
 
 1. In your python code, add a wait block:
@@ -124,7 +133,8 @@ AgentGlass allows you to pause your agents and modify their memory from the dash
 4. The Python execution will instantly resume with your overriding context!
 
 ### 2. Zero-Cost Debugging (VCR Cache)
-Stop burning OpenAI credits while fixing a `KeyError` three steps deep in your agent chain. 
+
+Stop burning OpenAI credits while fixing a `KeyError` three steps deep in your agent chain.
 
 1. Import the AgentGlass VCR cache:
    ```python
@@ -141,7 +151,9 @@ Stop burning OpenAI credits while fixing a `KeyError` three steps deep in your a
 4. Clean the cache via CLI anytime: `agentglass cache clear`.
 
 ### 3. GitFork (Branch Comparison)
+
 Use the new **Compare Traces** page to visually diff two different execution runs side-by-side.
+
 1. Run your agent with Prompt A (creates Trace 1).
 2. Tweak your agent and run it with Prompt B (creates Trace 2).
 3. Open the Dashboard > **Compare Traces**. Select Trace 1 as Primary and Trace 2 as Compare.
@@ -150,4 +162,5 @@ Use the new **Compare Traces** page to visually diff two different execution run
 ---
 
 ## License
+
 MIT

@@ -46,6 +46,13 @@ export interface TraceMetadataRow {
   has_error: number; // SQLite boolean (0 | 1)
 }
 
+export interface RcaResultRow {
+  trace_id: string;
+  span_id: string;
+  analysis: string;
+  created_at: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Initialise                                                        */
 /* ------------------------------------------------------------------ */
@@ -154,6 +161,19 @@ export function getEventsSince(sinceTimestamp: number): PersistedEventRow[] {
 
 export function getTraces(): TraceMetadataRow[] {
   return queryTracesStmt.all() as TraceMetadataRow[];
+}
+
+export function insertRcaResult(traceId: string, spanId: string, analysis: string): void {
+  insertRcaResultStmt.run({
+    trace_id: traceId,
+    span_id: spanId,
+    analysis,
+    created_at: Date.now() * 1000
+  });
+}
+
+export function getRcaResult(traceId: string, spanId: string): RcaResultRow | undefined {
+  return queryRcaResultStmt.get(traceId, spanId) as RcaResultRow | undefined;
 }
 
 export function closeDb(): void {
