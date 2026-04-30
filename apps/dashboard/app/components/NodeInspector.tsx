@@ -20,6 +20,7 @@ import {
 } from "../lib/eventHelpers";
 import { useSelectedTraceEvents } from "../hooks/useTraceStore";
 import { daemonHttp } from "../lib/daemonApi";
+import RAGXRayPanel from "./RAGXRayPanel";
 
 // Lazy load Monaco to avoid SSR issues
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -33,7 +34,7 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
 /*  Tabs                                                              */
 /* ------------------------------------------------------------------ */
 
-type InspectorTab = "input" | "output" | "events" | "analysis";
+type InspectorTab = "input" | "output" | "events" | "analysis" | "xray";
 
 /* ------------------------------------------------------------------ */
 /*  Blob Hydration                                                    */
@@ -97,7 +98,8 @@ export default function NodeInspector() {
     if (!node) return null;
     const errorEvent = node.events.find((e) => e.event_type === "error");
     const endEvent = node.events.find((e) => e.event_type === "agent_end");
-    return errorEvent?.payload ?? endEvent?.payload ?? null;
+    const toolResultEvent = node.events.find((e) => e.event_type === "tool_result");
+    return errorEvent?.payload ?? endEvent?.payload ?? toolResultEvent?.payload ?? null;
   }, [node]);
 
   const isCacheHit = useMemo(() => {
@@ -109,6 +111,20 @@ export default function NodeInspector() {
 
   const { hydrated: hydratedInput, isLoadingBlob: loadingInput } = useHydratedPayload(inputPayload);
   const { hydrated: hydratedOutput, isLoadingBlob: loadingOutput } = useHydratedPayload(outputPayload);
+
+  const retrievalResults = useMemo(() => {
+    if (hydratedOutput?.retrieval_results) return hydratedOutput.retrieval_results;
+    if (hydratedOutput?.result?.retrieval_results) return hydratedOutput.result.retrieval_results;
+    if (hydratedOutput?.output?.retrieval_results) return hydratedOutput.output.retrieval_results;
+    return null;
+  }, [hydratedOutput]);
+
+  const queryForRag = useMemo(() => {
+    if (hydratedInput?.query) return hydratedInput.query;
+    if (hydratedInput?.inputs?.query) return hydratedInput.inputs.query;
+    if (hydratedInput?.term) return hydratedInput.term;
+    return undefined;
+  }, [hydratedInput]);
 
   const defaultEditorContent = useMemo(() => {
     if (activeTab === "input") {
@@ -244,6 +260,17 @@ export default function NodeInspector() {
                 {tab === "input" ? "Input" : tab === "output" ? "Output" : "All Events"}
               </button>
             ))}
+            {retrievalResults && (
+              <button
+                key="xray"
+                className={`inspector-tab ${activeTab === "xray" ? "inspector-tab-active" : ""}`}
+                onClick={() => setActiveTab("xray")}
+                style={{ color: "#60a5fa" }}
+                title="View RAG retrieval context visually"
+              >
+                🔍 RAG X-Ray
+              </button>
+            )}
             {node.status === "error" && (
               <button
                 key="analysis"
@@ -259,7 +286,9 @@ export default function NodeInspector() {
 
           {/* Monaco Editor or RCA View */}
           <div className="inspector-editor" style={{ overflowY: "auto" }}>
-            {activeTab === "analysis" ? (
+            {activeTab === "xray" && retrievalResults ? (
+              <RAGXRayPanel results={retrievalResults} query={queryForRag} />
+            ) : activeTab === "analysis" ? (
               <div style={{ padding: "16px", color: "var(--foreground)", fontFamily: "var(--font-sans)", display: "flex", flexDirection: "column", gap: "12px" }}>
                 {isAnalyzing ? (
                   <div style={{ color: "#a855f7" }}>✨ Analyzing root cause locally...</div>
@@ -324,7 +353,7 @@ export default function NodeInspector() {
           </div>
 
           {/* Action Row */}
-          {activeTab !== "events" && activeTab !== "analysis" && (
+          {activeTab !== "events" && activeTab !== "analysis" && activeTab !== "xray" && (
             <div className="inspector-actions">
               <button 
                 className="btn-inject" 

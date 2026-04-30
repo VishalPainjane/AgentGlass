@@ -1,6 +1,7 @@
 from .client import AgentGlassClient, AgentGlassEvent
 from .instrumentation import with_agentglass
 from .vcr import VCRCache, agentglass_vcr
+from . import rag
 
 __all__ = [
     "AgentGlassClient",
@@ -8,6 +9,7 @@ __all__ = [
     "with_agentglass",
     "VCRCache",
     "agentglass_vcr",
+    "rag",
 ]
 
 # LangGraph adapter is imported on demand to avoid hard dependency:
