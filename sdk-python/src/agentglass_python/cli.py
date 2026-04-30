@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import webbrowser
-
+import sys
 import typer
 
 
@@ -25,3 +25,18 @@ def up(
 
     if open_browser:
         webbrowser.open(dashboard_url)
+
+
+@app.command()
+def tui(
+    daemon_url: str = typer.Option("http://127.0.0.1:7777", help="Daemon URL"),
+) -> None:
+    """Launch the AgentGlass Terminal UI."""
+    try:
+        from agentglass_python.tui import run_tui
+    except ImportError:
+        typer.echo("The TUI requires extra dependencies.")
+        typer.echo("Install them via: pip install agentglass-python[tui]")
+        sys.exit(1)
+        
+    run_tui(daemon_url)
