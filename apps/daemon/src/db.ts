@@ -80,6 +80,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_trace     ON events(trace_id);
   CREATE INDEX IF NOT EXISTS idx_events_timestamp  ON events(timestamp);
   CREATE INDEX IF NOT EXISTS idx_events_span       ON events(span_id);
+
+  CREATE TABLE IF NOT EXISTS rca_results (
+    trace_id    TEXT NOT NULL,
+    span_id     TEXT NOT NULL,
+    analysis    TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (trace_id, span_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS commands (
+    id            TEXT PRIMARY KEY,
+    trace_id      TEXT NOT NULL,
+    target_span   TEXT,
+    command_type  TEXT NOT NULL,
+    payload       TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    created_at    INTEGER NOT NULL
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(trace_id, status);
 `);
 
 /* ------------------------------------------------------------------ */
@@ -121,6 +141,28 @@ const queryTracesStmt = db.prepare(`
   GROUP BY trace_id
   ORDER BY MAX(timestamp) DESC
   LIMIT 100
+`);
+
+const insertRcaResultStmt = db.prepare(`
+  INSERT OR REPLACE INTO rca_results (trace_id, span_id, analysis, created_at)
+  VALUES (@trace_id, @span_id, @analysis, @created_at)
+`);
+
+const queryRcaResultStmt = db.prepare(`
+  SELECT * FROM rca_results WHERE trace_id = ? AND span_id = ?
+`);
+
+const insertCommandStmt = db.prepare(`
+  INSERT INTO commands (id, trace_id, target_span, command_type, payload, status, created_at)
+  VALUES (@id, @trace_id, @target_span, @command_type, @payload, @status, @created_at)
+`);
+
+const queryPendingCommandsStmt = db.prepare(`
+  SELECT * FROM commands WHERE trace_id = ? AND target_span = ? AND status = 'pending' ORDER BY created_at ASC
+`);
+
+const updateCommandStatusStmt = db.prepare(`
+  UPDATE commands SET status = @status WHERE id = @id
 `);
 
 /* ------------------------------------------------------------------ */
@@ -174,6 +216,22 @@ export function insertRcaResult(traceId: string, spanId: string, analysis: strin
 
 export function getRcaResult(traceId: string, spanId: string): RcaResultRow | undefined {
   return queryRcaResultStmt.get(traceId, spanId) as RcaResultRow | undefined;
+}
+
+export function insertCommand(cmd: Omit<CommandRow, "status" | "created_at">): void {
+  insertCommandStmt.run({
+    ...cmd,
+    status: 'pending',
+    created_at: Date.now() * 1000
+  });
+}
+
+export function getPendingCommands(traceId: string, targetSpan: string): CommandRow[] {
+  return queryPendingCommandsStmt.all(traceId, targetSpan) as CommandRow[];
+}
+
+export function updateCommandStatus(id: string, status: CommandRow["status"]): void {
+  updateCommandStatusStmt.run({ id, status });
 }
 
 export function closeDb(): void {

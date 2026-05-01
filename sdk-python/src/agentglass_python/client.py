@@ -85,6 +85,29 @@ class AgentGlassClient:
         
         return None
 
+    def poll_commands(self, trace_id: str | None = None, span_id: str | None = None) -> list[dict[str, Any]]:
+        """
+        Polls the local daemon for pending God Mode commands targeted at this span.
+        Commands are automatically marked as acknowledged by the daemon.
+        """
+        tid = trace_id or _current_trace_id.get()
+        sid = span_id or _current_span_id.get()
+        
+        if not tid or not sid:
+            return []
+            
+        url = f"{self.daemon_url}/v1/commands/poll"
+        
+        try:
+            with httpx.Client(timeout=2.0) as http_client:
+                response = http_client.post(url, json={"trace_id": tid, "target_span": sid})
+                if response.status_code == 200:
+                    return response.json().get("commands", [])
+        except Exception:
+            pass # Ignore connection errors during polling
+            
+        return []
+
     def create_span(
         self,
         trace_id: str | None = None,

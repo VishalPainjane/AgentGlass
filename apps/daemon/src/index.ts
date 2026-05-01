@@ -22,6 +22,9 @@ import {
   dbPath,
   insertRcaResult,
   getRcaResult,
+  insertCommand,
+  getPendingCommands,
+  updateCommandStatus,
   type PersistedEventRow,
 } from "./db";
 import { writeBlob, readBlob } from "./blobStore";
@@ -223,6 +226,67 @@ const server = createServer(async (req, res) => {
         error: "invalid_payload",
         message: error instanceof Error ? error.message : "Unknown parsing error",
       });
+    }
+    return;
+  }
+
+  // ---- Submit a Command (God Mode) ----
+  if (req.method === "POST" && pathname === "/v1/commands") {
+    try {
+      const body = await readBody(req);
+      const raw = JSON.parse(body);
+      
+      const id = randomUUID();
+      const payloadStr = typeof raw.payload === 'string' ? raw.payload : JSON.stringify(raw.payload || {});
+      
+      insertCommand({
+        id,
+        trace_id: raw.trace_id,
+        target_span: raw.target_span || null,
+        command_type: raw.command_type,
+        payload: payloadStr
+      });
+      
+      persistEvent({
+        event_id: randomUUID(),
+        trace_id: raw.trace_id,
+        span_id: raw.target_span || randomUUID(),
+        parent_span_id: null,
+        event_type: "god_mode_command",
+        node_name: "GodMode",
+        payload: { command_id: id, type: raw.command_type, data: payloadStr },
+        timestamp: Date.now() * 1000,
+        schema_version: "1.0.0"
+      });
+      
+      sendJson(res, 202, { id, status: "pending" });
+    } catch (error) {
+      sendJson(res, 400, { error: "invalid_command" });
+    }
+    return;
+  }
+
+  // ---- Poll Commands (God Mode) ----
+  if (req.method === "POST" && pathname === "/v1/commands/poll") {
+    try {
+      const body = await readBody(req);
+      const { trace_id, target_span } = JSON.parse(body);
+      
+      if (!trace_id || !target_span) {
+        sendJson(res, 400, { error: "missing_params" });
+        return;
+      }
+
+      const pending = getPendingCommands(trace_id, target_span);
+      
+      // Auto-acknowledge them so they aren't polled twice
+      for (const cmd of pending) {
+        updateCommandStatus(cmd.id, 'acknowledged');
+      }
+
+      sendJson(res, 200, { commands: pending });
+    } catch (error) {
+      sendJson(res, 400, { error: "invalid_poll_request" });
     }
     return;
   }

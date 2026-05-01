@@ -20,6 +20,10 @@ Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, char
 ## [Features]
 
 - [-] **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine.
+- [-] **God Mode Live Injection:** A real-time command REPL that lets you inject state, trigger tool calls, and override LLM responses live while the multi-agent system is running.
+- [-] **Terminal UI (TUI):** A keyboard-driven terminal interface rendering the agent graph, event timeline, and inspector using ASCII/Unicode — perfect for power users.
+- [-] **Local Root-Cause Analysis (AutoRCA):** When an agent crashes, AutoRCA automatically uses a local Ollama model to analyze the error and suggest fixes without sending data off-machine.
+- [-] **RAG X-Ray Panel:** When a retriever tool executes, visually inspect retrieved chunks, vector distances, and metadata directly in the dashboard.
 - [-] **Deterministic Time-Travel:** Use the timeline scrubber to perfectly rewind your multi-agent execution graph to the exact microsecond an error occurred.
 - [-] **GitFork (Execution Branching):** Compare alternative execution paths side-by-side. Did tweaking a prompt break downstream tools? Visually diff terminal payloads directly in the dashboard without writing mock tests.
 - [-] **VCR LLM Cache:** Save real API dollars during iterative debugging. Wrap LLM calls with `@agentglass_vcr` to deterministically cache API responses locally and replay them in `0.00s`.
