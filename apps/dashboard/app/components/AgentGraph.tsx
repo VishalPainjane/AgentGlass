@@ -20,7 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { AgentNode, type AgentNodeData } from "./AgentNode";
-import { useSelectedTraceEvents } from "../hooks/useTraceStore";
+import { useTraceStore, useSelectedTraceEvents } from "../hooks/useTraceStore";
 import { deriveNodesFromEvents, deriveEdgesFromEvents } from "../lib/eventHelpers";
 import { computeLayout } from "../lib/graphLayout";
 
@@ -38,6 +38,7 @@ const nodeTypes: NodeTypes = {
 
 export default function AgentGraph() {
   const events = useSelectedTraceEvents();
+  const isFetching = useTraceStore((s) => s.isFetching);
 
   const { flowNodes, flowEdges } = useMemo(() => {
     if (events.length === 0) {
@@ -85,21 +86,43 @@ export default function AgentGraph() {
     // React Flow initialized
   }, []);
 
+  if (isFetching && events.length === 0) {
+    return (
+      <div className="graph-empty">
+        <div className="graph-empty-content">
+          <div className="graph-loading-spinner" />
+          <h2>Loading trace events…</h2>
+          <p>Fetching full event history from the daemon.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (events.length === 0) {
+    const isDemoMode = useTraceStore((s) => s.isDemoMode);
+    const runDemo = async () => {
+      const { runLiveDemo } = await import("../lib/demoRunner");
+      await runLiveDemo();
+    };
+    
     return (
       <div className="graph-empty">
         <div className="graph-empty-content">
           <div className="graph-empty-icon">◇</div>
-          <h2>Waiting for agent events…</h2>
+          <h2>No traces yet</h2>
           <p>
-            Start your agent script with AgentGlass instrumentation.
-            <br />
-            Events will appear here in real time.
+            Connect your agent to start debugging. Or run a live demo that actually executes an agent.
           </p>
-          <code>
+          <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+            <button onClick={runDemo} className="graph-empty-btn-primary">
+              ⚡ Run Live Agent
+            </button>
+            <button onClick={() => window.open('https://pypi.org/project/agentglass-python/', '_blank')} className="graph-empty-btn-secondary">
+              Install SDK
+            </button>
+          </div>
+          <code style={{ marginTop: '24px' }}>
             pip install agentglass-python
-            <br />
-            # then instrument your LangGraph / agent code
           </code>
         </div>
       </div>

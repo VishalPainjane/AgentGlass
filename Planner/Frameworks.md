@@ -40,7 +40,7 @@ To make AgentGlass undeniable, the flow must be frictionless. Here is how a deve
 Step 1: The Zero-Friction Spin Up
 The user installs the package and runs a single terminal command: agentglass ui.
 
-What happens: A lightweight local server spins up, and their browser automatically opens to http://localhost:3000. They are greeted by a clean, dark-mode dashboard prompting them to start their agent script.
+What happens: A lightweight local server spins up, and their browser automatically opens to http://localhost:3456. They are greeted by a clean, dark-mode dashboard prompting them to start their agent script.
 
 Step 2: The Real-Time Build-Out
 The user executes their LangGraph or multi-agent Python script.

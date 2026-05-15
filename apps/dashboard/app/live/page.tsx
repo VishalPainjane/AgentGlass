@@ -19,9 +19,9 @@ import GodModeDrawer from "../components/GodModeDrawer";
 import { useDaemonSocket } from "../hooks/useDaemonSocket";
 
 export default function LiveGraphPage() {
-  // Connect to the daemon WebSocket
-  useDaemonSocket();
   const [godModeOpen, setGodModeOpen] = useState(false);
+
+  useDaemonSocket();
 
   return (
     <div className="dashboard" style={{ position: "relative" }}>
@@ -35,7 +35,6 @@ export default function LiveGraphPage() {
       </div>
       <TimeScrubber />
       
-      {/* God Mode Toggle Button */}
       <button
         onClick={() => setGodModeOpen(!godModeOpen)}
         style={{
@@ -61,7 +60,6 @@ export default function LiveGraphPage() {
         ⚡
       </button>
 
-      {/* God Mode Drawer */}
       <GodModeDrawer isOpen={godModeOpen} onClose={() => setGodModeOpen(false)} />
     </div>
   );

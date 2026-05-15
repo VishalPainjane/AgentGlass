@@ -1,3 +1,4 @@
+import asyncio
 import functools
 import hashlib
 import json
@@ -41,8 +42,7 @@ class VCRCache:
             ''')
 
     def _hash(self, model: str, kwargs: dict[str, Any]) -> str:
-        # Remove volatile fields that don't affect output determinism (or handle them carefully)
-        # But for LLMs, messages/prompts are the main things.
+        # Remove volatile fields that don't affect output determinism
         clean_kwargs = {k: v for k, v in kwargs.items() if k not in ("api_key", "timeout", "client")}
         try:
             serialized = json.dumps(clean_kwargs, sort_keys=True, default=str)
@@ -76,7 +76,6 @@ class VCRCache:
         
         # Best-effort JSON serialization
         try:
-            # If the response is a pydantic model (e.g. from OpenAI v1)
             if hasattr(response, "model_dump_json"):
                 response_str = response.model_dump_json()
             elif hasattr(response, "json"):
@@ -100,54 +99,74 @@ class VCRCache:
 def agentglass_vcr(vcr: VCRCache, client: Optional[AgentGlassClient] = None, model_arg: str = "model") -> Callable[[F], F]:
     """
     Decorator to wrap LLM calls with the VCR cache.
-    If the response is cached, it returns the cached dictionary (or object).
-    Otherwise, calls the real API and caches the result.
+    Supports both synchronous and asynchronous functions.
     
     If `client` is provided, it automatically logs the `llm_request` and `llm_response` 
     to AgentGlass, including a `cache_hit` flag.
     """
     def decorator(func: F) -> F:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            model = kwargs.get(model_arg, "unknown_model")
-            
-            # 1. Check cache
-            cached_resp = vcr.get(model, kwargs)
-            is_hit = cached_resp is not None
-            
-            # Log Request
-            if client:
-                client.track_event(
-                    event_type="llm_request",
-                    node_name=func.__name__,
-                    payload={"model": model, "kwargs": kwargs, "vcr_mode": vcr.mode}
-                )
-
-            # 2. Return Cache or Call Real API
-            if is_hit:
-                resp = cached_resp
-            else:
-                resp = func(*args, **kwargs)
-                vcr.set(model, kwargs, resp)
-            
-            # Log Response
-            if client:
-                # If cached_resp was a dict but resp is an object, we log the string form.
-                payload = {"model": model, "cache_hit": is_hit, "vcr_mode": vcr.mode}
-                try:
-                    if hasattr(resp, "model_dump"):
-                        payload["response"] = resp.model_dump()
-                    else:
-                        payload["response"] = resp
-                except Exception:
-                    payload["response"] = str(resp)
-
-                client.track_event(
-                    event_type="llm_response",
-                    node_name=func.__name__,
-                    payload=payload
-                )
+        if asyncio.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                model = kwargs.get(model_arg, "unknown_model")
+                cached_resp = vcr.get(model, kwargs)
+                is_hit = cached_resp is not None
                 
-            return resp
-        return wrapper # type: ignore
+                if client:
+                    client.track_event(
+                        event_type="llm_request",
+                        node_name=func.__name__,
+                        payload={"model": model, "kwargs": kwargs, "vcr_mode": vcr.mode}
+                    )
+
+                if is_hit:
+                    resp = cached_resp
+                else:
+                    resp = await func(*args, **kwargs)
+                    vcr.set(model, kwargs, resp)
+                
+                if client:
+                    payload = {"model": model, "cache_hit": is_hit, "vcr_mode": vcr.mode}
+                    try:
+                        if hasattr(resp, "model_dump"):
+                            payload["response"] = resp.model_dump()
+                        else:
+                            payload["response"] = resp
+                    except Exception:
+                        payload["response"] = str(resp)
+                    client.track_event(event_type="llm_response", node_name=func.__name__, payload=payload)
+                return resp
+            return async_wrapper # type: ignore
+        else:
+            @functools.wraps(func)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                model = kwargs.get(model_arg, "unknown_model")
+                cached_resp = vcr.get(model, kwargs)
+                is_hit = cached_resp is not None
+                
+                if client:
+                    client.track_event(
+                        event_type="llm_request",
+                        node_name=func.__name__,
+                        payload={"model": model, "kwargs": kwargs, "vcr_mode": vcr.mode}
+                    )
+
+                if is_hit:
+                    resp = cached_resp
+                else:
+                    resp = func(*args, **kwargs)
+                    vcr.set(model, kwargs, resp)
+                
+                if client:
+                    payload = {"model": model, "cache_hit": is_hit, "vcr_mode": vcr.mode}
+                    try:
+                        if hasattr(resp, "model_dump"):
+                            payload["response"] = resp.model_dump()
+                        else:
+                            payload["response"] = resp
+                    except Exception:
+                        payload["response"] = str(resp)
+                    client.track_event(event_type="llm_response", node_name=func.__name__, payload=payload)
+                return resp
+            return sync_wrapper # type: ignore
     return decorator

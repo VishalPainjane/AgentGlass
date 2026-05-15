@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -38,7 +39,7 @@ class AgentGlassClient:
 
     def __init__(
         self,
-        daemon_url: str = "http://127.0.0.1:7777",
+        daemon_url: str = "http://127.0.0.1:8765",
         flush_interval_ms: int = 250,
         max_batch_size: int = 50,
         request_timeout_s: float = 2.0,
@@ -108,18 +109,51 @@ class AgentGlassClient:
             
         return []
 
-    def create_span(
-        self,
-        trace_id: str | None = None,
-        parent_span_id: str | None = None,
-    ) -> tuple[str, str, str | None]:
-        """Create a new span, returning (trace_id, span_id, parent_span_id)."""
+    def breakpoint(self, name: str = "Breakpoint", trace_id: str | None = None, span_id: str | None = None) -> dict[str, Any] | None:
+        """
+        Pauses execution and waits for a God Mode command from the dashboard.
+        Emits a 'breakpoint' event to notify the UI.
+        """
         tid = trace_id or _current_trace_id.get() or str(uuid4())
-        pid = parent_span_id or _current_span_id.get()
-        sid = str(uuid4())
-        _current_trace_id.set(tid)
-        _current_span_id.set(sid)
-        return tid, sid, pid
+        sid = span_id or _current_span_id.get() or str(uuid4())
+        
+        self.track_event(
+            event_type="breakpoint",
+            node_name=name,
+            trace_id=tid,
+            span_id=sid,
+            payload={"status": "paused"}
+        )
+        
+        print(f"\n🛑 AgentGlass Breakpoint: {name} (Trace: {tid[:8]}, Span: {sid[:8]})")
+        print("   Waiting for intervention from the dashboard...")
+        
+        while not self._stop_event.is_set():
+            commands = self.poll_commands(tid, sid)
+            for cmd in commands:
+                print(f"   📥 Received Command: {cmd['command_type']}")
+                
+                # Acknowledge and resume if it's an injection
+                if cmd['command_type'] == 'inject':
+                    payload = json.loads(cmd['payload'])
+                    print(f"   ✅ Injected: {payload.get('field')} = {payload.get('value')}")
+                    
+                    self.track_event(
+                        event_type="state_injection",
+                        node_name=name,
+                        trace_id=tid,
+                        span_id=sid,
+                        payload=payload
+                    )
+                    return payload
+                
+                # If we add more command types (like 'resume'), handle them here
+                if cmd['command_type'] == 'resume':
+                    return None
+                    
+            time.sleep(1.0)
+        return None
+
 
     # ---- tracking ----
 
@@ -176,11 +210,14 @@ class AgentGlassClient:
         payload = [item.model_dump() for item in batch]
 
         try:
-            httpx.post(
+            response = httpx.post(
                 f"{self.daemon_url}/v1/events",
                 json=payload,
                 timeout=self.request_timeout_s,
             )
+            if response.status_code >= 400:
+                for event in batch:
+                    self._queue.put(event)
         except Exception:
             for event in batch:
                 self._queue.put(event)

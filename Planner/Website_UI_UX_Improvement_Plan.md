@@ -4,6 +4,17 @@ This planner outlines an exhaustive execution strategy to elevate the AgentGlass
 
 ---
 
+## 0. Product Workflow Fixes (Blocking)
+
+**Objective:** Before premium polish, repair core workflows so the UI is trustworthy and functional.
+
+*   [ ] **Top Bar & Trace Selector:** Redesign layout, spacing, and selection clarity. Ensure long names, statuses, and timestamps render cleanly with keyboard navigation.
+*   [ ] **Remove Connection Status Flicker:** Remove the connected/disconnected badge from the top bar. If needed, move it to Settings or a status panel with stable refresh.
+*   [ ] **Compare Trace v2:** Remove hardcoded data, define a real compare flow, and implement coherent diff semantics and summaries.
+*   [ ] **Cache Manager v1:** Replace the placeholder with a real cache list or a clear empty state plus CLI guidance.
+*   [ ] **Settings v1:** Populate the settings page with real controls (daemon connection, data retention, theme, export, shortcuts).
+*   [ ] **Docs v1:** Complete docs with working examples and end-to-end guidance.
+
 ## 1. Typography: The Foundation of Premium Design
 
 **Objective:** Give the UI a highly engineered, modern, and polished look through font choices, spacing, and strict color hierarchy.

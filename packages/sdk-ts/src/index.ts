@@ -56,7 +56,7 @@ export class AgentGlassClient {
   private flushing = false;
 
   constructor(options: AgentGlassClientOptions = {}) {
-    this.daemonUrl = options.daemonUrl ?? "http://127.0.0.1:7777";
+    this.daemonUrl = options.daemonUrl ?? "http://127.0.0.1:8765";
     this.flushIntervalMs = options.flushIntervalMs ?? 250;
     this.maxBatchSize = options.maxBatchSize ?? 50;
   }
@@ -70,11 +70,12 @@ export class AgentGlassClient {
     }, this.flushIntervalMs);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+    await this.flush();
   }
 
   /* ------ tracking ------ */

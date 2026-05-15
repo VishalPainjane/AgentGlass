@@ -53,6 +53,16 @@ export interface RcaResultRow {
   created_at: number;
 }
 
+export interface CommandRow {
+  id: string;
+  trace_id: string;
+  target_span: string | null;
+  command_type: string;
+  payload: string;
+  status: "pending" | "acknowledged" | "completed" | "failed";
+  created_at: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Initialise                                                        */
 /* ------------------------------------------------------------------ */
@@ -143,6 +153,17 @@ const queryTracesStmt = db.prepare(`
   LIMIT 100
 `);
 
+const queryCacheableEventsStmt = db.prepare(`
+  SELECT * FROM events 
+  WHERE event_type IN ('llm_request', 'llm_response', 'tool_result') 
+  ORDER BY timestamp DESC 
+  LIMIT 500
+`);
+
+const clearAllEventsStmt = db.prepare(`DELETE FROM events`);
+const clearAllRcaStmt = db.prepare(`DELETE FROM rca_results`);
+const clearAllCommandsStmt = db.prepare(`DELETE FROM commands`);
+
 const insertRcaResultStmt = db.prepare(`
   INSERT OR REPLACE INTO rca_results (trace_id, span_id, analysis, created_at)
   VALUES (@trace_id, @span_id, @analysis, @created_at)
@@ -205,6 +226,10 @@ export function getTraces(): TraceMetadataRow[] {
   return queryTracesStmt.all() as TraceMetadataRow[];
 }
 
+export function getCacheableEvents(): PersistedEventRow[] {
+  return queryCacheableEventsStmt.all() as PersistedEventRow[];
+}
+
 export function insertRcaResult(traceId: string, spanId: string, analysis: string): void {
   insertRcaResultStmt.run({
     trace_id: traceId,
@@ -232,6 +257,15 @@ export function getPendingCommands(traceId: string, targetSpan: string): Command
 
 export function updateCommandStatus(id: string, status: CommandRow["status"]): void {
   updateCommandStatusStmt.run({ id, status });
+}
+
+export function clearDatabase(): void {
+  const transaction = db.transaction(() => {
+    clearAllEventsStmt.run();
+    clearAllRcaStmt.run();
+    clearAllCommandsStmt.run();
+  });
+  transaction();
 }
 
 export function closeDb(): void {

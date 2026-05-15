@@ -31,7 +31,7 @@ export interface TraceMetadata {
   has_error: boolean;
 }
 
-export type NodeStatus = "running" | "completed" | "error" | "idle";
+export type NodeStatus = "running" | "completed" | "error" | "idle" | "paused";
 
 export interface GraphNode {
   spanId: string;
@@ -67,12 +67,17 @@ export function deriveNodesFromEvents(events: PersistedEvent[]): Map<string, Gra
       // Update status based on latest event
       if (event.event_type === "error") {
         existing.status = "error";
+      } else if (event.event_type === "breakpoint") {
+        existing.status = "paused";
+      } else if (event.event_type === "state_injection") {
+        if (existing.status === "paused") existing.status = "running";
       } else if (event.event_type === "agent_end") {
         if (existing.status !== "error") existing.status = "completed";
       } else if (
         event.event_type === "agent_start" &&
         existing.status !== "error" &&
-        existing.status !== "completed"
+        existing.status !== "completed" &&
+        existing.status !== "paused"
       ) {
         existing.status = "running";
       }
@@ -84,6 +89,7 @@ export function deriveNodesFromEvents(events: PersistedEvent[]): Map<string, Gra
     } else {
       let status: NodeStatus = "idle";
       if (event.event_type === "error") status = "error";
+      else if (event.event_type === "breakpoint") status = "paused";
       else if (event.event_type === "agent_start") status = "running";
       else if (event.event_type === "agent_end") status = "completed";
 
@@ -199,6 +205,10 @@ export function getEventTypeColor(eventType: string): string {
       return "#67e8f9";
     case "error":
       return "#f87171";
+    case "breakpoint":
+      return "#ef4444";
+    case "state_injection":
+      return "#3b82f6";
     default:
       return "#94a3b8";
   }
@@ -212,6 +222,8 @@ export function getStatusColor(status: NodeStatus): string {
       return "#4ade80";
     case "error":
       return "#f87171";
+    case "paused":
+      return "#ef4444";
     case "idle":
       return "#94a3b8";
   }

@@ -17,11 +17,13 @@ export function writeBlob(payloadStr: string): string {
   const blobPath = join(blobsDir, `${hash}.json`);
   
   if (!existsSync(blobPath)) {
+    console.log(`[blobstore] Writing blob: ${hash} (${payloadStr.length} bytes)`);
     writeFileSync(blobPath, payloadStr, "utf-8");
   }
   
   return hash;
 }
+
 
 /**
  * Reads a payload string from the blob store by its hash.

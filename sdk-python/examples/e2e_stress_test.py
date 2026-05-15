@@ -17,8 +17,8 @@ Covers: ingestion, WebSocket broadcast, graph rendering, time-travel data,
         blob offloading, idempotency, error nodes, REST endpoints.
 
 Prerequisites:
-    1. Daemon running on :7777
-    2. Dashboard running on :3000
+    1. Daemon running on :8765
+    2. Dashboard running on :3456
     3. pip install -e sdk-python
     4. python sdk-python/examples/e2e_stress_test.py
 """
@@ -35,7 +35,7 @@ import httpx
 from agentglass_python import AgentGlassClient, AgentGlassEvent
 
 
-DAEMON = "http://127.0.0.1:7777"
+DAEMON = "http://127.0.0.1:8765"
 PASS = "\033[92mPASS\033[0m"
 FAIL = "\033[91mFAIL\033[0m"
 WARN = "\033[93mWARN\033[0m"
@@ -523,7 +523,7 @@ def main() -> None:
         print("=" * 60)
 
     print(f"\n  Main trace ID: {trace_id}")
-    print(f"  Dashboard: http://localhost:3000")
+    print(f"  Dashboard: http://localhost:3456")
     print(f"  (Open the dashboard and select the trace to see the full graph)")
     print()
 

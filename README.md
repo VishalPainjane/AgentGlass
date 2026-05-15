@@ -40,21 +40,15 @@ Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, char
 
 ### 1. Start the AgentGlass Local Stack
 
-You can run the Daemon and Dashboard via the CLI or NPX.
+You can run the Daemon and Dashboard with a single command via NPX and PNPM:
 
 ```bash
-npx @agentglass/cli up
+npx pnpm install
+npx pnpm build
+npx pnpm dev:up
 ```
 
-Or, using this monorepo locally:
-
-```bash
-pnpm install
-pnpm build
-pnpm dev:up
-```
-
-_This starts the Daemon on `http://127.0.0.1:7777` and the Dashboard on `http://localhost:3000`._
+_This starts the Daemon on `http://127.0.0.1:8765` and the Dashboard on `http://localhost:3456`._
 
 ### 2. Instrument Your Python Agents
 
@@ -105,7 +99,7 @@ async for event in instrumented_app.astream({"messages": [...]}, stream_mode="va
 
 ### 3. Open the Dashboard!
 
-Navigate to `http://localhost:3000` in your browser. As your Python agents execute, the graph will populate in real-time.
+Navigate to `http://localhost:3456` in your browser. As your Python agents execute, the graph will populate in real-time.
 
 ---
 

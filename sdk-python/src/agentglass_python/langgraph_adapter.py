@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import BaseMessage
 from .client import AgentGlassClient, AgentGlassEvent, _current_trace_id, _current_span_id
 
 
@@ -30,113 +32,133 @@ def _now_microseconds() -> int:
     return time.time_ns() // 1000
 
 
-def _safe_serialize(obj: Any) -> dict[str, Any]:
-    """Attempt to serialize an object to a JSON-safe dict."""
+def _safe_serialize(obj: Any) -> Any:
+    """Attempt to serialize an object to a JSON-safe format."""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _safe_serialize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_safe_serialize(x) for x in obj]
+    if isinstance(obj, BaseMessage):
+        return {"content": obj.content, "type": obj.type, "name": getattr(obj, "name", None)}
+    
     try:
-        if isinstance(obj, dict):
-            # Try to serialize — if it fails, stringify
-            json.dumps(obj)
-            return obj
-        return {"value": str(obj)}
+        # Check if it's already JSON serializable
+        json.dumps(obj)
+        return obj
     except (TypeError, ValueError):
-        return {"value": str(obj)}
+        return str(obj)
 
 
-class AgentGlassLangGraphCallback:
-    """Callback handler that emits AgentGlass telemetry events
-    for LangGraph node transitions.
-
-    This class is designed to work with LangGraph's callback system.
-    It can be used as a standalone observer or integrated via the
-    `instrument_langgraph` helper.
+class AgentGlassLangGraphCallback(BaseCallbackHandler):
+    """
+    Proper LangChain Callback Handler for AgentGlass.
+    Hooks into the LangChain/LangGraph lifecycle to emit telemetry.
     """
 
     def __init__(
         self,
         client: AgentGlassClient,
         trace_id: str | None = None,
+        parent_span_id: str | None = None,
     ) -> None:
         self.client = client
         self.trace_id = trace_id or str(uuid4())
-        self._node_spans: dict[str, str] = {}  # node_name -> span_id
-        self._root_span_id = str(uuid4())
+        self.root_span_id = parent_span_id or str(uuid4())
+        self._span_stack: List[str] = [self.root_span_id]
+        
+        # Map of run_id -> span_id to track nested calls correctly
+        self._run_to_span: Dict[str, str] = {}
 
-    def on_chain_start(self, node_name: str, inputs: Any) -> str:
-        """Called when a graph node begins execution."""
-        span_id = str(uuid4())
-        self._node_spans[node_name] = span_id
+    def on_chain_start(
+        self,
+        serialized: Dict[str, Any],
+        inputs: Dict[str, Any],
+        *,
+        run_id: Any,
+        parent_run_id: Any = None,
+        tags: List[str] | None = None,
+        metadata: Dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        span_id = str(run_id)
+        parent_span = str(parent_run_id) if parent_run_id else self.root_span_id
+        self._run_to_span[run_id] = (span_id, parent_span)
+        
+        node_name = None
+        if metadata:
+            node_name = metadata.get("langgraph_node")
+        if not node_name and serialized:
+            node_name = serialized.get("name")
+        if not node_name:
+            node_name = "Chain"
 
         self.client.track(
             AgentGlassEvent(
                 trace_id=self.trace_id,
                 span_id=span_id,
-                parent_span_id=self._root_span_id,
+                parent_span_id=parent_span,
                 event_type="agent_start",
                 node_name=node_name,
-                payload={"name": node_name, "inputs": _safe_serialize(inputs)},
+                payload={"inputs": _safe_serialize(inputs), "metadata": metadata},
             )
         )
 
-        # Emit state snapshot
+    def on_chain_end(
+        self,
+        outputs: Dict[str, Any],
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        span_id, parent_span = self._run_to_span.get(run_id, (str(run_id), self.root_span_id))
+        
         self.client.track(
             AgentGlassEvent(
                 trace_id=self.trace_id,
                 span_id=span_id,
-                parent_span_id=self._root_span_id,
-                event_type="state_snapshot",
-                node_name=node_name,
-                payload={"state": _safe_serialize(inputs), "stage": "input"},
-            )
-        )
-
-        return span_id
-
-    def on_chain_end(self, node_name: str, outputs: Any) -> None:
-        """Called when a graph node completes execution."""
-        span_id = self._node_spans.get(node_name, str(uuid4()))
-
-        # Emit output state snapshot
-        self.client.track(
-            AgentGlassEvent(
-                trace_id=self.trace_id,
-                span_id=span_id,
-                parent_span_id=self._root_span_id,
-                event_type="state_snapshot",
-                node_name=node_name,
-                payload={"state": _safe_serialize(outputs), "stage": "output"},
-            )
-        )
-
-        self.client.track(
-            AgentGlassEvent(
-                trace_id=self.trace_id,
-                span_id=span_id,
-                parent_span_id=self._root_span_id,
+                parent_span_id=parent_span,
                 event_type="agent_end",
-                node_name=node_name,
-                payload={"name": node_name, "outputs": _safe_serialize(outputs)},
+                payload={"outputs": _safe_serialize(outputs)},
             )
         )
 
-    def on_chain_error(self, node_name: str, error: Exception) -> None:
-        """Called when a graph node raises an error."""
-        span_id = self._node_spans.get(node_name, str(uuid4()))
-
+    def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        span_id, parent_span = self._run_to_span.get(run_id, (str(run_id), self.root_span_id))
+        
         self.client.track(
             AgentGlassEvent(
                 trace_id=self.trace_id,
                 span_id=span_id,
-                parent_span_id=self._root_span_id,
+                parent_span_id=parent_span,
                 event_type="error",
-                node_name=node_name,
-                payload={"name": node_name, "message": str(error), "type": type(error).__name__},
+                payload={"message": str(error), "type": type(error).__name__},
             )
         )
 
-    def on_tool_call(self, node_name: str, tool_name: str, tool_input: Any) -> str:
-        """Called when a tool is invoked within a node."""
-        parent_span = self._node_spans.get(node_name, self._root_span_id)
-        span_id = str(uuid4())
+    def on_tool_start(
+        self,
+        serialized: Dict[str, Any],
+        input_str: str,
+        *,
+        run_id: Any,
+        parent_run_id: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        span_id = str(run_id)
+        parent_span = str(parent_run_id) if parent_run_id else self.root_span_id
+        self._run_to_span[run_id] = (span_id, parent_span)
+        
+        tool_name = "Tool"
+        if serialized:
+            tool_name = serialized.get("name") or "Tool"
 
         self.client.track(
             AgentGlassEvent(
@@ -145,27 +167,77 @@ class AgentGlassLangGraphCallback:
                 parent_span_id=parent_span,
                 event_type="tool_call",
                 node_name=tool_name,
-                payload={"tool_name": tool_name, "input": _safe_serialize(tool_input)},
+                payload={"input": input_str},
             )
         )
-        return span_id
 
-    def on_tool_result(self, span_id: str, tool_name: str, result: Any) -> None:
-        """Called when a tool returns a result."""
+    def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        span_id, parent_span = self._run_to_span.get(run_id, (str(run_id), self.root_span_id))
+        
         self.client.track(
             AgentGlassEvent(
                 trace_id=self.trace_id,
                 span_id=span_id,
-                parent_span_id=self._root_span_id,
+                parent_span_id=parent_span,
                 event_type="tool_result",
-                node_name=tool_name,
-                payload={"tool_name": tool_name, "result": _safe_serialize(result)},
+                payload={"result": _safe_serialize(output)},
             )
         )
 
-    @property
-    def root_span_id(self) -> str:
-        return self._root_span_id
+    def on_llm_start(
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str],
+        *,
+        run_id: Any,
+        parent_run_id: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        span_id = str(run_id)
+        parent_span = str(parent_run_id) if parent_run_id else self.root_span_id
+        self._run_to_span[run_id] = (span_id, parent_span)
+        
+        model_name = "LLM"
+        if kwargs.get("invocation_params"):
+            model_name = kwargs["invocation_params"].get("model_name") or "LLM"
+        elif serialized:
+            model_name = serialized.get("name") or "LLM"
+
+        self.client.track(
+            AgentGlassEvent(
+                trace_id=self.trace_id,
+                span_id=span_id,
+                parent_span_id=parent_span,
+                event_type="llm_request",
+                node_name=model_name,
+                payload={"prompts": prompts, "params": kwargs.get("invocation_params")},
+            )
+        )
+
+    def on_llm_end(
+        self,
+        response: Any,
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        span_id, parent_span = self._run_to_span.get(run_id, (str(run_id), self.root_span_id))
+        
+        self.client.track(
+            AgentGlassEvent(
+                trace_id=self.trace_id,
+                span_id=span_id,
+                parent_span_id=parent_span,
+                event_type="llm_response",
+                payload={"response": _safe_serialize(response)},
+            )
+        )
 
 
 def instrument_langgraph(
@@ -173,64 +245,212 @@ def instrument_langgraph(
     client: AgentGlassClient,
     trace_id: str | None = None,
 ) -> Any:
-    """Instrument a compiled LangGraph graph for AgentGlass telemetry.
-
-    This wraps the graph's invoke/ainvoke methods to automatically
-    emit span events for each node execution.
-
-    Args:
-        graph: A compiled LangGraph StateGraph
-        client: An AgentGlassClient instance
-        trace_id: Optional trace ID (auto-generated if not provided)
-
-    Returns:
-        The same graph object, now instrumented.
-
-    Example:
-        graph = build_my_graph().compile()
-        graph = instrument_langgraph(graph, client)
-        result = graph.invoke({"input": "hello"})
     """
-    callback = AgentGlassLangGraphCallback(client, trace_id)
+    Instrument a compiled LangGraph graph for AgentGlass telemetry.
+    
+    Injects a root span and configures callbacks to track node transitions.
+    """
+    tid = trace_id or _current_trace_id.get() or str(uuid4())
+    root_sid = str(uuid4())
+    
+    callback = AgentGlassLangGraphCallback(client, trace_id=tid, parent_span_id=root_sid)
 
     original_invoke = graph.invoke
+    original_ainvoke = getattr(graph, "ainvoke", None)
+    original_stream = getattr(graph, "stream", None)
+    original_astream = getattr(graph, "astream", None)
+
+    def _prepare_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if "config" not in kwargs:
+            kwargs["config"] = {}
+        
+        config = kwargs["config"]
+        if "callbacks" not in config:
+            config["callbacks"] = []
+        
+        # Avoid double instrumentation
+        if not any(isinstance(c, AgentGlassLangGraphCallback) for c in config["callbacks"]):
+            config["callbacks"].append(callback)
+            
+        return kwargs
 
     def instrumented_invoke(input_data: Any, *args: Any, **kwargs: Any) -> Any:
         # Emit root agent_start
         client.track(
             AgentGlassEvent(
-                trace_id=callback.trace_id,
-                span_id=callback.root_span_id,
+                trace_id=tid,
+                span_id=root_sid,
                 parent_span_id=None,
                 event_type="agent_start",
                 node_name="LangGraph",
-                payload={"name": "LangGraph", "input": _safe_serialize(input_data)},
+                payload={"input": _safe_serialize(input_data)},
             )
         )
 
-        try:
-            # If LangGraph supports callbacks, pass our callback
-            if "config" not in kwargs:
-                kwargs["config"] = {}
+        # Set context for any non-LangChain calls inside nodes
+        t_token = _current_trace_id.set(tid)
+        s_token = _current_span_id.set(root_sid)
 
+        try:
+            kwargs = _prepare_kwargs(kwargs)
             result = original_invoke(input_data, *args, **kwargs)
 
             client.track(
                 AgentGlassEvent(
-                    trace_id=callback.trace_id,
-                    span_id=callback.root_span_id,
-                    parent_span_id=None,
+                    trace_id=tid,
+                    span_id=root_sid,
                     event_type="agent_end",
-                    node_name="LangGraph",
-                    payload={"name": "LangGraph", "output": _safe_serialize(result)},
+                    payload={"output": _safe_serialize(result)},
                 )
             )
-
             return result
         except Exception as error:
-            callback.on_chain_error("LangGraph", error)
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="error",
+                    payload={"message": str(error)},
+                )
+            )
             raise
+        finally:
+            _current_trace_id.reset(t_token)
+            _current_span_id.reset(s_token)
+
+    async def instrumented_ainvoke(input_data: Any, *args: Any, **kwargs: Any) -> Any:
+        client.track(
+            AgentGlassEvent(
+                trace_id=tid,
+                span_id=root_sid,
+                parent_span_id=None,
+                event_type="agent_start",
+                node_name="LangGraph",
+                payload={"input": _safe_serialize(input_data)},
+            )
+        )
+
+        t_token = _current_trace_id.set(tid)
+        s_token = _current_span_id.set(root_sid)
+
+        try:
+            kwargs = _prepare_kwargs(kwargs)
+            result = await original_ainvoke(input_data, *args, **kwargs)
+
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="agent_end",
+                    payload={"output": _safe_serialize(result)},
+                )
+            )
+            return result
+        except Exception as error:
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="error",
+                    payload={"message": str(error)},
+                )
+            )
+            raise
+        finally:
+            _current_trace_id.reset(t_token)
+            _current_span_id.reset(s_token)
+
+    def instrumented_stream(input_data: Any, *args: Any, **kwargs: Any) -> Any:
+        client.track(
+            AgentGlassEvent(
+                trace_id=tid,
+                span_id=root_sid,
+                parent_span_id=None,
+                event_type="agent_start",
+                node_name="LangGraph",
+                payload={"input": _safe_serialize(input_data)},
+            )
+        )
+
+        t_token = _current_trace_id.set(tid)
+        s_token = _current_span_id.set(root_sid)
+
+        try:
+            kwargs = _prepare_kwargs(kwargs)
+            for item in original_stream(input_data, *args, **kwargs):
+                yield item
+            
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="agent_end",
+                    payload={"output": "stream_completed"},
+                )
+            )
+        except Exception as error:
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="error",
+                    payload={"message": str(error)},
+                )
+            )
+            raise
+        finally:
+            _current_trace_id.reset(t_token)
+            _current_span_id.reset(s_token)
+
+    async def instrumented_astream(input_data: Any, *args: Any, **kwargs: Any) -> Any:
+        client.track(
+            AgentGlassEvent(
+                trace_id=tid,
+                span_id=root_sid,
+                parent_span_id=None,
+                event_type="agent_start",
+                node_name="LangGraph",
+                payload={"input": _safe_serialize(input_data)},
+            )
+        )
+
+        t_token = _current_trace_id.set(tid)
+        s_token = _current_span_id.set(root_sid)
+
+        try:
+            kwargs = _prepare_kwargs(kwargs)
+            async for item in original_astream(input_data, *args, **kwargs):
+                yield item
+            
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="agent_end",
+                    payload={"output": "stream_completed"},
+                )
+            )
+        except Exception as error:
+            client.track(
+                AgentGlassEvent(
+                    trace_id=tid,
+                    span_id=root_sid,
+                    event_type="error",
+                    payload={"message": str(error)},
+                )
+            )
+            raise
+        finally:
+            _current_trace_id.reset(t_token)
+            _current_span_id.reset(s_token)
 
     graph.invoke = instrumented_invoke
-    graph._agentglass_callback = callback
+    if original_ainvoke:
+        graph.ainvoke = instrumented_ainvoke
+    if original_stream:
+        graph.stream = instrumented_stream
+    if original_astream:
+        graph.astream = instrumented_astream
+        
     return graph
+

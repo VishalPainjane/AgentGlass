@@ -1,9 +1,9 @@
 /**
- * Daemon WebSocket Hook
+ * Daemon WebSocket Hook — Phase 2 Hardened
  *
  * Connects to the local AgentGlass daemon, handles bootstrap
  * and real-time event messages, and auto-reconnects with
- * exponential backoff.
+ * exponential backoff. Picks up connection settings from localStorage.
  */
 
 "use client";
@@ -14,20 +14,19 @@ import type { PersistedEvent } from "../lib/eventHelpers";
 import { getDaemonWsUrl, isLocalhostHost } from "../lib/daemonApi";
 import { createDemoTraceEvents } from "../lib/demoTrace";
 
-const DAEMON_WS_URL =
-  typeof window !== "undefined"
-    ? getDaemonWsUrl()
-    : "ws://127.0.0.1:7777/ws";
-const HAS_CUSTOM_DAEMON_WS_URL = Boolean(process.env.NEXT_PUBLIC_DAEMON_WS_URL);
-const DEMO_FALLBACK_ENABLED = process.env.NEXT_PUBLIC_DEMO_FALLBACK !== "false";
+const HAS_CUSTOM_DAEMON_WS_URL = typeof process !== "undefined" && Boolean(process.env.NEXT_PUBLIC_DAEMON_WS_URL);
+const DEMO_FALLBACK_ENABLED = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_FALLBACK !== "false";
 
-const BASE_RECONNECT_MS = 1000;
+const BASE_RECONNECT_MS = 1500;
 const MAX_RECONNECT_MS = 16000;
+const STATUS_DEBOUNCE_MS = 300; // Debounce status changes to prevent flicker
 
 export function useDaemonSocket(): void {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   const addEvent = useTraceStore((s) => s.addEvent);
   const bootstrap = useTraceStore((s) => s.bootstrap);
@@ -40,7 +39,35 @@ export function useDaemonSocket(): void {
     !HAS_CUSTOM_DAEMON_WS_URL &&
     !isLocalhostHost(window.location.hostname);
 
+  // Debounced status setter to prevent rapid flicker during reconnects
+  const setStatusDebounced = useCallback(
+    (status: "connecting" | "connected" | "disconnected") => {
+      if (!mountedRef.current) return;
+
+      // "connected" should apply immediately (user sees green fast)
+      if (status === "connected") {
+        if (statusTimer.current) {
+          clearTimeout(statusTimer.current);
+          statusTimer.current = null;
+        }
+        setConnectionStatus(status);
+        return;
+      }
+
+      // "connecting" and "disconnected" are debounced
+      if (statusTimer.current) return; // already pending
+      statusTimer.current = setTimeout(() => {
+        statusTimer.current = null;
+        if (mountedRef.current) {
+          setConnectionStatus(status);
+        }
+      }, STATUS_DEBOUNCE_MS);
+    },
+    [setConnectionStatus]
+  );
+
   const loadDemoTrace = useCallback(() => {
+    if (!mountedRef.current) return;
     const state = useTraceStore.getState();
     if (state.events.length > 0) return;
 
@@ -49,26 +76,38 @@ export function useDaemonSocket(): void {
     setConnectionStatus("connected");
   }, [bootstrap, setConnectionStatus, setDemoMode]);
 
-  const connect = useCallback(() => {
+  const connectWs = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    // Recalculate URL inside connectWs to pick up localStorage changes
+    const currentWsUrl = typeof window !== "undefined" ? getDaemonWsUrl() : "ws://127.0.0.1:8765/ws";
+
     // Clean up previous connection
     if (wsRef.current) {
+      wsRef.current.onclose = null; // prevent recursive reconnect
+      wsRef.current.onerror = null;
       wsRef.current.close();
       wsRef.current = null;
     }
 
-    setConnectionStatus("connecting");
+    setStatusDebounced("connecting");
 
     try {
-      const ws = new WebSocket(DAEMON_WS_URL);
+      const ws = new WebSocket(currentWsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (!mountedRef.current) {
+          ws.close();
+          return;
+        }
         reconnectAttempt.current = 0;
         setDemoMode(false);
-        setConnectionStatus("connected");
+        setStatusDebounced("connected");
       };
 
       ws.onmessage = (messageEvent) => {
+        if (!mountedRef.current) return;
         try {
           const data = JSON.parse(String(messageEvent.data));
 
@@ -83,20 +122,24 @@ export function useDaemonSocket(): void {
       };
 
       ws.onclose = () => {
-        setConnectionStatus("disconnected");
+        if (!mountedRef.current) return;
+        setStatusDebounced("disconnected");
         scheduleReconnect();
       };
 
       ws.onerror = () => {
+        // onclose will fire after onerror, so just close
         ws.close();
       };
     } catch {
-      setConnectionStatus("disconnected");
+      setStatusDebounced("disconnected");
       scheduleReconnect();
     }
-  }, [addEvent, bootstrap, setConnectionStatus, setDemoMode]);
+  }, [addEvent, bootstrap, setStatusDebounced, setDemoMode]);
 
   const scheduleReconnect = useCallback(() => {
+    if (!mountedRef.current) return;
+
     if (canUseDemoFallback && reconnectAttempt.current >= 2) {
       loadDemoTrace();
       return;
@@ -114,20 +157,39 @@ export function useDaemonSocket(): void {
     reconnectAttempt.current++;
 
     reconnectTimer.current = setTimeout(() => {
-      connect();
+      reconnectTimer.current = null;
+      if (mountedRef.current) {
+        connectWs();
+      }
     }, delay);
-  }, [canUseDemoFallback, connect, loadDemoTrace]);
+  }, [canUseDemoFallback, loadDemoTrace, connectWs]);
 
   useEffect(() => {
-    connect();
+    mountedRef.current = true;
+    connectWs();
+
+    // Listen for storage events (if settings change in another tab)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "agentglass-settings") {
+        connectWs();
+      }
+    };
+    window.addEventListener("storage", handleStorage);
 
     return () => {
+      mountedRef.current = false;
+      window.removeEventListener("storage", handleStorage);
+      if (statusTimer.current) {
+        clearTimeout(statusTimer.current);
+      }
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
       }
       if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connectWs]);
 }

@@ -11,16 +11,17 @@
 import { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
-import { useTraceStore, useSelectedNodeEvents } from "../hooks/useTraceStore";
+import { useTraceStore, useSelectedNodeEvents, useSelectedTraceEvents } from "../hooks/useTraceStore";
 import {
   getStatusColor,
   getEventTypeColor,
   formatTimestamp,
   deriveNodesFromEvents,
 } from "../lib/eventHelpers";
-import { useSelectedTraceEvents } from "../hooks/useTraceStore";
 import { daemonHttp } from "../lib/daemonApi";
 import RAGXRayPanel from "./RAGXRayPanel";
+import { useHydratedPayload } from "../hooks/useHydratedPayload";
+import { useHasMounted } from "../hooks/useHasMounted";
 
 // Lazy load Monaco to avoid SSR issues
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -37,37 +38,6 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
 type InspectorTab = "input" | "output" | "events" | "analysis" | "xray";
 
 /* ------------------------------------------------------------------ */
-/*  Blob Hydration                                                    */
-/* ------------------------------------------------------------------ */
-
-function isBlobRef(payload: any): payload is { $blob: string } {
-  return payload && typeof payload === "object" && typeof payload.$blob === "string";
-}
-
-export function useHydratedPayload(payload: any) {
-  const [hydrated, setHydrated] = useState<any>(payload);
-  const [isLoadingBlob, setIsLoadingBlob] = useState(false);
-
-  useEffect(() => {
-    if (isBlobRef(payload)) {
-      setIsLoadingBlob(true);
-      fetch(daemonHttp(`/v1/blobs/${payload.$blob}`))
-        .then(res => res.json())
-        .then(data => setHydrated(data))
-        .catch(err => {
-          console.error("Failed to load blob", err);
-          setHydrated({ $error: "Failed to load blob", hash: payload.$blob });
-        })
-        .finally(() => setIsLoadingBlob(false));
-    } else {
-      setHydrated(payload);
-    }
-  }, [payload]);
-
-  return { hydrated, isLoadingBlob };
-}
-
-/* ------------------------------------------------------------------ */
 /*  Component                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -81,6 +51,7 @@ export default function NodeInspector() {
   const [isInjecting, setIsInjecting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisContent, setAnalysisContent] = useState<any>(null);
+  const hasMounted = useHasMounted();
 
   const node = useMemo(() => {
     if (!selectedSpanId || allTraceEvents.length === 0) return null;
@@ -158,24 +129,21 @@ export default function NodeInspector() {
       const parsedPayload = JSON.parse(editedContent);
       const traceId = useTraceStore.getState().selectedTraceId || nodeEvents[0]?.trace_id;
       
-      const injectEvent = {
-        trace_id: traceId,
-        span_id: node.spanId,
-        parent_span_id: node.parentSpanId,
-        event_type: "state_injection",
-        node_name: node.nodeName,
-        payload: parsedPayload,
-      };
-
-      const res = await fetch(daemonHttp("/v1/events"), {
+      const res = await fetch(daemonHttp("/v1/commands"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(injectEvent),
+        body: JSON.stringify({
+          trace_id: traceId,
+          target_span: node.spanId,
+          command_type: "inject",
+          payload: parsedPayload,
+        }),
       });
 
       if (!res.ok) {
-        throw new Error("Failed to inject state");
+        throw new Error("Failed to inject state command");
       }
+      alert("State injection command sent to daemon.");
     } catch (e) {
       console.error(e);
       alert("Invalid JSON or network error during injection.");
@@ -376,7 +344,7 @@ export default function NodeInspector() {
                 />
                 <span className="inspector-event-type">{event.event_type}</span>
                 <span className="inspector-event-time">
-                  {formatTimestamp(event.timestamp)}
+                  {hasMounted ? formatTimestamp(event.timestamp) : "…"}
                 </span>
               </div>
             ))}

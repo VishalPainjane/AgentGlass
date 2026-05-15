@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import { useTraceStore } from "../hooks/useTraceStore";
 import { formatDuration, formatTimestamp, type PersistedEvent } from "../lib/eventHelpers";
-import { useHydratedPayload } from "./NodeInspector";
+import { useHydratedPayload } from "../hooks/useHydratedPayload";
+import { useHasMounted } from "../hooks/useHasMounted";
 
 interface TokenTotals {
+
   input: number;
   output: number;
 }
@@ -22,8 +24,8 @@ interface TraceExecutionSummary {
   errorCount: number;
   durationMicros: number;
   durationLabel: string;
-  startedAt: string;
-  finishedAt: string;
+  startedAtMicros: number;
+  finishedAtMicros: number;
   tokenInput: number;
   tokenOutput: number;
   totalTokens: number;
@@ -229,8 +231,8 @@ function summarizeTrace(traceId: string | null, events: PersistedEvent[]): Trace
     errorCount,
     durationMicros,
     durationLabel: durationMicros > 0 ? formatDuration(first.timestamp, last.timestamp) : "< 1ms",
-    startedAt: formatTimestamp(first.timestamp),
-    finishedAt: formatTimestamp(last.timestamp),
+    startedAtMicros: first.timestamp,
+    finishedAtMicros: last.timestamp,
     tokenInput,
     tokenOutput,
     totalTokens: tokenInput + tokenOutput,
@@ -292,6 +294,8 @@ function TraceSummaryCard({
   summary: TraceExecutionSummary | null;
   branch: "primary" | "compare";
 }) {
+  const hasMounted = useHasMounted();
+
   if (!summary) {
     return (
       <section className={`compare-summary-card compare-summary-card-${branch}`}>
@@ -354,13 +358,88 @@ function TraceSummaryCard({
 
       <div className="compare-summary-footnote">
         <span>
-          {summary.startedAt} {"->"} {summary.finishedAt}
+          {hasMounted ? formatTimestamp(summary.startedAtMicros) : "…"} {"->"} {hasMounted ? formatTimestamp(summary.finishedAtMicros) : "…"}
         </span>
         <span>{summary.checkpoints.length > 0 ? summary.checkpoints.join(", ") : "No checkpoints"}</span>
         <span>{summary.models.length > 0 ? summary.models.join(", ") : "No model metadata"}</span>
       </div>
     </section>
   );
+}
+
+function FormattedValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined) {
+    return <span style={{ color: "#569cd6" }}>{String(value)}</span>;
+  }
+  if (typeof value === "boolean") {
+    return <span style={{ color: "#569cd6" }}>{String(value)}</span>;
+  }
+  if (typeof value === "number") {
+    return <span style={{ color: "#b5cea8" }}>{value}</span>;
+  }
+  if (typeof value === "string") {
+    // Attempt to parse as JSON just in case
+    let parsed;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      // not JSON
+    }
+    if (parsed && typeof parsed === "object") {
+      return (
+        <div style={{ border: "1px dashed var(--border)", padding: "4px", borderRadius: "4px", marginTop: "4px" }}>
+          <FormattedValue value={parsed} />
+        </div>
+      );
+    }
+    return (
+      <div
+        style={{
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          color: "#ce9178",
+          background: "rgba(0,0,0,0.15)",
+          padding: "6px 8px",
+          borderRadius: "4px",
+          fontFamily: "var(--font-mono), monospace",
+          fontSize: "0.85em",
+          marginTop: "4px",
+          maxHeight: "400px",
+          overflowY: "auto"
+        }}
+      >
+        {value}
+      </div>
+    );
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span>[]</span>;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px", paddingLeft: "12px", borderLeft: "1px solid var(--border)", marginTop: "4px" }}>
+        {value.map((item, idx) => (
+          <div key={idx} style={{ display: "flex", gap: "8px" }}>
+            <span style={{ color: "#858585", fontSize: "0.8em", marginTop: "6px" }}>[{idx}]</span>
+            <div style={{ flex: 1 }}><FormattedValue value={item} /></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return <span>{`{}`}</span>;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingLeft: "12px", borderLeft: "1px solid var(--border)", marginTop: "4px" }}>
+        {keys.map((key) => (
+          <div key={key}>
+            <span style={{ color: "#9cdcfe", fontWeight: 600, fontSize: "0.9em" }}>{key}:</span>
+            <FormattedValue value={(value as Record<string, unknown>)[key]} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <span>{String(value)}</span>;
 }
 
 export default function TraceComparePanel() {
@@ -529,8 +608,8 @@ export default function TraceComparePanel() {
                 {visibleRows.map((row) => (
                   <tr key={row.path} className={`compare-diff-row compare-diff-row-${row.kind}`}>
                     <td className="compare-diff-path">{row.path}</td>
-                    <td>{row.primaryValue ?? "-"}</td>
-                    <td>{row.compareValue ?? "-"}</td>
+                    <td><FormattedValue value={row.primaryValue} /></td>
+                    <td><FormattedValue value={row.compareValue} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -554,7 +633,9 @@ export default function TraceComparePanel() {
             {loadingPrimary ? (
               <div>Loading payload...</div>
             ) : (
-              <pre>{JSON.stringify(primaryHydrated ?? null, null, 2)}</pre>
+              <div style={{ background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px", border: "1px solid var(--border)", overflowX: "auto" }}>
+                <FormattedValue value={primaryHydrated ?? null} />
+              </div>
             )}
           </div>
         </div>
@@ -569,7 +650,9 @@ export default function TraceComparePanel() {
               loadingCompare ? (
                 <div>Loading payload...</div>
               ) : (
-                <pre>{JSON.stringify(compareHydrated ?? null, null, 2)}</pre>
+                <div style={{ background: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "6px", border: "1px solid var(--border)", overflowX: "auto" }}>
+                  <FormattedValue value={compareHydrated ?? null} />
+                </div>
               )
             ) : (
               <div>Pick Branch Beta to view output.</div>

@@ -15,6 +15,7 @@ import {
   formatTimestamp,
   getEventTypeColor,
 } from "../lib/eventHelpers";
+import { useHasMounted } from "../hooks/useHasMounted";
 
 /* ------------------------------------------------------------------ */
 /*  Event type → short label                                          */
@@ -54,6 +55,7 @@ export default function EventTimeline() {
   const selectedSpanId = useTraceStore((s) => s.selectedSpanId);
   const selectNode = useTraceStore((s) => s.selectNode);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasMounted = useHasMounted();
 
   // Auto-scroll to bottom on new events
   useEffect(() => {
@@ -113,7 +115,7 @@ export default function EventTimeline() {
                     {eventLabel(event.event_type)}
                   </span>
                   <span className="timeline-time">
-                    {formatTimestamp(event.timestamp)}
+                    {hasMounted ? formatTimestamp(event.timestamp) : "…"}
                   </span>
                 </div>
                 <div className="timeline-event-name">{String(name)}</div>

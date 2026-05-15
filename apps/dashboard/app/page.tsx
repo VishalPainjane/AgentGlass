@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { runLiveDemo } from "./lib/demoRunner";
 
 const featureCards = [
   {
@@ -38,18 +39,42 @@ const featureCards = [
 ];
 
 export default function LandingPage() {
+  const [mounted, setMounted] = useState(false);
+  
   const { scrollYProgress } = useScroll();
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "30%"]);
   
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoStatus, setDemoStatus] = useState<string>("");
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleRunDemo = async () => {
+    setDemoLoading(true);
+    setDemoStatus("Starting daemon...");
+    
+    try {
+      setDemoStatus("Running real agent...");
+      await runLiveDemo();
+      setDemoStatus("Done!");
+      window.location.href = "/live";
+    } catch (e) {
+      setDemoStatus("Demo failed: " + (e instanceof Error ? e.message : "Unknown error"));
+      setDemoLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!mounted) return;
     const handleMouseMove = (e: MouseEvent) => {
       setMousePosition({ x: e.clientX, y: e.clientY });
     };
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
+  }, [mounted]);
 
   return (
     <div className="relative min-h-screen bg-[#0a0e12] text-slate-200 overflow-hidden font-sans selection:bg-emerald-500/30">
@@ -59,13 +84,15 @@ export default function LandingPage() {
         style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }}
       />
 
-      {/* Custom Cursor Glow */}
-      <motion.div 
-        className="pointer-events-none fixed inset-0 z-40 transition-opacity duration-300"
-        animate={{
-          background: `radial-gradient(600px circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(16, 185, 129, 0.05), transparent 40%)`
-        }}
-      />
+      {/* Custom Cursor Glow - only render after mount */}
+      {mounted && (
+        <motion.div 
+          className="pointer-events-none fixed inset-0 z-40 transition-opacity duration-300"
+          animate={{
+            background: `radial-gradient(600px circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(16, 185, 129, 0.05), transparent 40%)`
+          }}
+        />
+      )}
 
       {/* Background Ambient Glows */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
@@ -114,14 +141,31 @@ export default function LandingPage() {
             Isolate root causes, fork execution paths, and inject state in real-time.
           </p>
           
-          <div className="flex items-center justify-center gap-4">
-            <Link href="/live" className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] overflow-hidden">
-              <span className="relative z-10">Start Debugging</span>
-              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+          <div className="flex items-center justify-center gap-4 flex-wrap">
+            <button 
+              onClick={handleRunDemo}
+              disabled={demoLoading}
+              className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                {demoLoading ? (
+                  <>
+                    <span className="animate-spin">⟳</span>
+                    {demoStatus || "Running..."}
+                  </>
+                ) : (
+                  <>
+                    <span>⚡</span> Try Live Demo
+                  </>
+                )}
+              </span>
+              {!demoLoading && (
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+              )}
+            </button>
+            <Link href="/live" className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm">
+              Start Debugging
             </Link>
-            <div className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-mono text-sm flex items-center gap-3 backdrop-blur-sm">
-              <span className="text-slate-500">$</span> pip install agentglass-python
-            </div>
           </div>
         </motion.div>
 

@@ -27,12 +27,12 @@ async function runUp(openBrowser: boolean): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   if (openBrowser) {
-    await open("http://localhost:3000");
+    await open("http://localhost:3456");
   }
 
   console.log("AgentGlass local stack started");
-  console.log("Dashboard: http://localhost:3000");
-  console.log("Daemon: http://127.0.0.1:7777");
+  console.log("Dashboard: http://localhost:3456");
+  console.log("Daemon: http://127.0.0.1:8765");
 }
 
 const program = new Command();
@@ -40,7 +40,10 @@ const program = new Command();
 program
   .name("agentglass")
   .description("Local-first observability and time-travel debugging stack for agents")
-  .version("0.1.0");
+  .version("0.1.0")
+  .action(() => {
+    program.help();
+  });
 
 program
   .command("up")

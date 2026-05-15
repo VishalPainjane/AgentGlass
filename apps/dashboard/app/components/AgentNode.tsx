@@ -38,7 +38,9 @@ function AgentNodeComponent({ data }: NodeProps) {
         ? "Done"
         : status === "error"
           ? "Error"
-          : "Idle";
+          : status === "paused"
+            ? "Paused"
+            : "Idle";
 
   return (
     <motion.div

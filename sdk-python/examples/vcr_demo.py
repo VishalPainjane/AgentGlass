@@ -13,7 +13,7 @@ from uuid import uuid4
 from agentglass_python import AgentGlassClient, VCRCache, agentglass_vcr
 
 # 1. Initialize the client and cache
-client = AgentGlassClient(daemon_url="http://127.0.0.1:7777", flush_interval_ms=100)
+client = AgentGlassClient(daemon_url="http://127.0.0.1:8765", flush_interval_ms=100)
 vcr = VCRCache(db_path=".agentglass/vcr_cache.db", mode="auto")
 
 # 2. Define a dummy LLM function wrapped with the @agentglass_vcr decorator
