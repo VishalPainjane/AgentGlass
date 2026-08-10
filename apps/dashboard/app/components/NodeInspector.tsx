@@ -11,15 +11,17 @@
 import { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
-import { useTraceStore, useSelectedNodeEvents } from "../hooks/useTraceStore";
+import { useTraceStore, useSelectedNodeEvents, useSelectedTraceEvents } from "../hooks/useTraceStore";
 import {
   getStatusColor,
   getEventTypeColor,
   formatTimestamp,
   deriveNodesFromEvents,
 } from "../lib/eventHelpers";
-import { useSelectedTraceEvents } from "../hooks/useTraceStore";
 import { daemonHttp } from "../lib/daemonApi";
+import RAGXRayPanel from "./RAGXRayPanel";
+import { useHydratedPayload } from "../hooks/useHydratedPayload";
+import { useHasMounted } from "../hooks/useHasMounted";
 
 // Lazy load Monaco to avoid SSR issues
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -33,38 +35,7 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
 /*  Tabs                                                              */
 /* ------------------------------------------------------------------ */
 
-type InspectorTab = "input" | "output" | "events" | "analysis";
-
-/* ------------------------------------------------------------------ */
-/*  Blob Hydration                                                    */
-/* ------------------------------------------------------------------ */
-
-function isBlobRef(payload: any): payload is { $blob: string } {
-  return payload && typeof payload === "object" && typeof payload.$blob === "string";
-}
-
-export function useHydratedPayload(payload: any) {
-  const [hydrated, setHydrated] = useState<any>(payload);
-  const [isLoadingBlob, setIsLoadingBlob] = useState(false);
-
-  useEffect(() => {
-    if (isBlobRef(payload)) {
-      setIsLoadingBlob(true);
-      fetch(daemonHttp(`/v1/blobs/${payload.$blob}`))
-        .then(res => res.json())
-        .then(data => setHydrated(data))
-        .catch(err => {
-          console.error("Failed to load blob", err);
-          setHydrated({ $error: "Failed to load blob", hash: payload.$blob });
-        })
-        .finally(() => setIsLoadingBlob(false));
-    } else {
-      setHydrated(payload);
-    }
-  }, [payload]);
-
-  return { hydrated, isLoadingBlob };
-}
+type InspectorTab = "input" | "output" | "events" | "analysis" | "xray";
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                         */
@@ -80,6 +51,7 @@ export default function NodeInspector() {
   const [isInjecting, setIsInjecting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisContent, setAnalysisContent] = useState<any>(null);
+  const hasMounted = useHasMounted();
 
   const node = useMemo(() => {
     if (!selectedSpanId || allTraceEvents.length === 0) return null;
@@ -97,7 +69,8 @@ export default function NodeInspector() {
     if (!node) return null;
     const errorEvent = node.events.find((e) => e.event_type === "error");
     const endEvent = node.events.find((e) => e.event_type === "agent_end");
-    return errorEvent?.payload ?? endEvent?.payload ?? null;
+    const toolResultEvent = node.events.find((e) => e.event_type === "tool_result");
+    return errorEvent?.payload ?? endEvent?.payload ?? toolResultEvent?.payload ?? null;
   }, [node]);
 
   const isCacheHit = useMemo(() => {
@@ -109,6 +82,72 @@ export default function NodeInspector() {
 
   const { hydrated: hydratedInput, isLoadingBlob: loadingInput } = useHydratedPayload(inputPayload);
   const { hydrated: hydratedOutput, isLoadingBlob: loadingOutput } = useHydratedPayload(outputPayload);
+
+  const retrievalResults = useMemo(() => {
+    if (hydratedOutput?.retrieval_results) return hydratedOutput.retrieval_results;
+    if (hydratedOutput?.result?.retrieval_results) return hydratedOutput.result.retrieval_results;
+    if (hydratedOutput?.outputs?.retrieval_results) return hydratedOutput.outputs.retrieval_results;
+    if (hydratedOutput?.output?.retrieval_results) return hydratedOutput.output.retrieval_results;
+    return null;
+  }, [hydratedOutput]);
+
+  const llmTelemetry = useMemo(() => {
+    if (!node) return null;
+    const request = node.events.find((e) => e.event_type === "llm_request");
+    const response = node.events.find((e) => e.event_type === "llm_response");
+    if (!request && !response) return null;
+
+    const params = request?.payload?.params;
+    const provider =
+      (typeof request?.payload?.provider === "string" ? request.payload.provider : null) ??
+      (isRecord(params) && typeof params._type === "string" ? params._type : null);
+    const model =
+      (typeof request?.payload?.model === "string" ? request.payload.model : null) ??
+      request?.node_name ??
+      null;
+
+    let duration: string | null = null;
+    if (request && response) {
+      const durationMicros = response.payload?.duration_micros;
+      if (typeof durationMicros === "number") {
+        duration = `${(durationMicros / 1000).toFixed(1)}ms`;
+      }
+    }
+
+    const tokenUsage = response?.payload?.token_usage;
+    let tokensLabel = "not available";
+    if (isRecord(tokenUsage)) {
+      const input = tokenUsage.input_tokens ?? tokenUsage.prompt_tokens ?? tokenUsage.input;
+      const output = tokenUsage.output_tokens ?? tokenUsage.completion_tokens ?? tokenUsage.output;
+      if (input != null || output != null) {
+        tokensLabel = `${input ?? "?"} in / ${output ?? "?"} out`;
+      }
+    }
+
+    return {
+      provider: provider ?? "not captured",
+      model: model ?? "not captured",
+      duration: duration ?? (request && response ? "captured in span timing" : "not captured"),
+      tokens: tokensLabel,
+      finishReason:
+        typeof response?.payload?.finish_reason === "string"
+          ? response.payload.finish_reason
+          : "not captured",
+      hasInput: Boolean(request?.payload?.prompts),
+      hasOutput: Boolean(response?.payload?.response),
+    };
+  }, [node]);
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  const queryForRag = useMemo(() => {
+    if (hydratedInput?.query) return hydratedInput.query;
+    if (hydratedInput?.inputs?.query) return hydratedInput.inputs.query;
+    if (hydratedInput?.term) return hydratedInput.term;
+    return undefined;
+  }, [hydratedInput]);
 
   const defaultEditorContent = useMemo(() => {
     if (activeTab === "input") {
@@ -142,24 +181,21 @@ export default function NodeInspector() {
       const parsedPayload = JSON.parse(editedContent);
       const traceId = useTraceStore.getState().selectedTraceId || nodeEvents[0]?.trace_id;
       
-      const injectEvent = {
-        trace_id: traceId,
-        span_id: node.spanId,
-        parent_span_id: node.parentSpanId,
-        event_type: "state_injection",
-        node_name: node.nodeName,
-        payload: parsedPayload,
-      };
-
-      const res = await fetch(daemonHttp("/v1/events"), {
+      const res = await fetch(daemonHttp("/v1/commands"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(injectEvent),
+        body: JSON.stringify({
+          trace_id: traceId,
+          target_span: node.spanId,
+          command_type: "inject",
+          payload: parsedPayload,
+        }),
       });
 
       if (!res.ok) {
-        throw new Error("Failed to inject state");
+        throw new Error("Failed to inject state command");
       }
+      alert("State injection command sent to daemon.");
     } catch (e) {
       console.error(e);
       alert("Invalid JSON or network error during injection.");
@@ -233,6 +269,20 @@ export default function NodeInspector() {
             </div>
           </div>
 
+          {/* LLM telemetry strip */}
+          {llmTelemetry && (
+            <div className="inspector-llm-telemetry">
+              <h4>LLM Call</h4>
+              <div className="inspector-llm-grid">
+                <span>Provider: <strong>{llmTelemetry.provider}</strong></span>
+                <span>Model: <strong>{llmTelemetry.model}</strong></span>
+                <span>Duration: <strong>{llmTelemetry.duration}</strong></span>
+                <span>Tokens: <strong>{llmTelemetry.tokens}</strong></span>
+                <span>Finish: <strong>{llmTelemetry.finishReason}</strong></span>
+              </div>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="inspector-tabs">
             {(["input", "output", "events"] as InspectorTab[]).map((tab) => (
@@ -244,6 +294,17 @@ export default function NodeInspector() {
                 {tab === "input" ? "Input" : tab === "output" ? "Output" : "All Events"}
               </button>
             ))}
+            {retrievalResults && (
+              <button
+                key="xray"
+                className={`inspector-tab ${activeTab === "xray" ? "inspector-tab-active" : ""}`}
+                onClick={() => setActiveTab("xray")}
+                style={{ color: "#60a5fa" }}
+                title="View RAG retrieval context visually"
+              >
+                🔍 RAG X-Ray
+              </button>
+            )}
             {node.status === "error" && (
               <button
                 key="analysis"
@@ -257,36 +318,89 @@ export default function NodeInspector() {
             )}
           </div>
 
-          {/* Monaco Editor */}
-          <div className="inspector-editor">
-            <MonacoEditor
-              height="100%"
-              language="json"
-              theme="vs-dark"
-              value={editedContent}
-              onChange={(val) => setEditedContent(val ?? "")}
-              options={{
-                readOnly: activeTab === "events" || activeTab === "analysis",
-                minimap: { enabled: false },
-                fontSize: 13,
-                fontFamily: "var(--font-mono), monospace",
-                lineNumbers: "off",
-                scrollBeyondLastLine: false,
-                wordWrap: "on",
-                padding: { top: 12, bottom: 12 },
-                renderLineHighlight: "none",
-                overviewRulerBorder: false,
-                hideCursorInOverviewRuler: true,
-                scrollbar: {
-                  verticalScrollbarSize: 6,
-                  horizontalScrollbarSize: 6,
-                },
-              }}
-            />
+          {/* Monaco Editor or RCA View */}
+          <div className="inspector-editor" style={{ overflowY: "auto" }}>
+            {activeTab === "xray" && retrievalResults ? (
+              <RAGXRayPanel results={retrievalResults} query={queryForRag} />
+            ) : activeTab === "analysis" ? (
+              <div style={{ padding: "16px", color: "var(--foreground)", fontFamily: "var(--font-sans)", display: "flex", flexDirection: "column", gap: "12px" }}>
+                {isAnalyzing ? (
+                  <div style={{ color: "#a855f7" }}>✨ Analyzing root cause locally...</div>
+                ) : analysisContent?.error ? (
+                  <div style={{ color: "#f87171" }}>{analysisContent.error}</div>
+                ) : analysisContent ? (
+                  <>
+                    {analysisContent.isFallback && (
+                      <div style={{
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        backgroundColor: "rgba(251, 191, 36, 0.12)",
+                        border: "1px solid rgba(251, 191, 36, 0.35)",
+                        color: "#fbbf24",
+                        fontSize: "0.85rem",
+                      }}>
+                        Ollama is not available. This is a fallback summary, not AI-generated analysis.
+                        Install and run Ollama to enable real AutoRCA.
+                      </div>
+                    )}
+                    <div>
+                      <h4 style={{ color: "#f87171", margin: "0 0 4px 0" }}>Root Cause</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem" }}>{analysisContent.rootCause}</p>
+                    </div>
+                    <div>
+                      <h4 style={{ color: "#a855f7", margin: "0 0 4px 0" }}>Explanation</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem", whiteSpace: "pre-wrap" }}>{analysisContent.explanation}</p>
+                    </div>
+                    <div>
+                      <h4 style={{ color: "#4ade80", margin: "0 0 4px 0" }}>Suggested Fix</h4>
+                      <p style={{ margin: 0, fontSize: "0.95rem", whiteSpace: "pre-wrap" }}>{analysisContent.suggestedFix}</p>
+                    </div>
+                    {analysisContent.origin_span_id && (
+                      <button 
+                        onClick={() => selectNode(analysisContent.origin_span_id)}
+                        style={{ marginTop: "8px", alignSelf: "flex-start", padding: "8px 16px", backgroundColor: "rgba(59, 130, 246, 0.2)", color: "#60a5fa", borderRadius: "6px", cursor: "pointer", border: "1px solid #3b82f6" }}
+                      >
+                        ↗ Jump to Origin Node
+                      </button>
+                    )}
+                    <div style={{ marginTop: "8px", fontSize: "0.8rem", opacity: 0.6 }}>
+                      Model: {analysisContent.model} • Confidence: {(analysisContent.confidence * 100).toFixed(0)}%
+                    </div>
+                  </>
+                ) : (
+                  <div>No analysis available. Click "Auto-Analyze" above.</div>
+                )}
+              </div>
+            ) : (
+              <MonacoEditor
+                height="100%"
+                language="json"
+                theme="vs-dark"
+                value={editedContent}
+                onChange={(val) => setEditedContent(val ?? "")}
+                options={{
+                  readOnly: activeTab === "events",
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  fontFamily: "var(--font-mono), monospace",
+                  lineNumbers: "off",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  padding: { top: 12, bottom: 12 },
+                  renderLineHighlight: "none",
+                  overviewRulerBorder: false,
+                  hideCursorInOverviewRuler: true,
+                  scrollbar: {
+                    verticalScrollbarSize: 6,
+                    horizontalScrollbarSize: 6,
+                  },
+                }}
+              />
+            )}
           </div>
 
           {/* Action Row */}
-          {activeTab !== "events" && activeTab !== "analysis" && (
+          {activeTab !== "events" && activeTab !== "analysis" && activeTab !== "xray" && (
             <div className="inspector-actions">
               <button 
                 className="btn-inject" 
@@ -309,7 +423,7 @@ export default function NodeInspector() {
                 />
                 <span className="inspector-event-type">{event.event_type}</span>
                 <span className="inspector-event-time">
-                  {formatTimestamp(event.timestamp)}
+                  {hasMounted ? formatTimestamp(event.timestamp) : "…"}
                 </span>
               </div>
             ))}

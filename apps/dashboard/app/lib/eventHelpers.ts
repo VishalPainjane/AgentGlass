@@ -1,9 +1,10 @@
 /**
  * Event helper utilities
- *
- * Derives React Flow nodes and edges from the raw event stream,
- * and provides formatting helpers for the dashboard UI.
  */
+
+import { canonicalNodeDisplayName } from "@agentglass/sdk-ts/browser";
+
+export { canonicalNodeDisplayName };
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -29,9 +30,10 @@ export interface TraceMetadata {
   first_timestamp: number;
   last_timestamp: number;
   has_error: boolean;
+  summary?: import("@agentglass/sdk-ts/browser").TraceSummary;
 }
 
-export type NodeStatus = "running" | "completed" | "error" | "idle";
+export type NodeStatus = "running" | "completed" | "error" | "idle" | "paused";
 
 export interface GraphNode {
   spanId: string;
@@ -67,30 +69,36 @@ export function deriveNodesFromEvents(events: PersistedEvent[]): Map<string, Gra
       // Update status based on latest event
       if (event.event_type === "error") {
         existing.status = "error";
+      } else if (event.event_type === "breakpoint") {
+        existing.status = "paused";
+      } else if (event.event_type === "state_injection") {
+        if (existing.status === "paused") existing.status = "running";
       } else if (event.event_type === "agent_end") {
         if (existing.status !== "error") existing.status = "completed";
       } else if (
         event.event_type === "agent_start" &&
         existing.status !== "error" &&
-        existing.status !== "completed"
+        existing.status !== "completed" &&
+        existing.status !== "paused"
       ) {
         existing.status = "running";
       }
 
       // Update name if we didn't have one
       if (!existing.nodeName && event.node_name) {
-        existing.nodeName = event.node_name;
+        existing.nodeName = canonicalNodeDisplayName(event.node_name);
       }
     } else {
       let status: NodeStatus = "idle";
       if (event.event_type === "error") status = "error";
+      else if (event.event_type === "breakpoint") status = "paused";
       else if (event.event_type === "agent_start") status = "running";
       else if (event.event_type === "agent_end") status = "completed";
 
       nodes.set(event.span_id, {
         spanId: event.span_id,
         parentSpanId: event.parent_span_id,
-        nodeName: event.node_name || event.span_id.slice(0, 8),
+        nodeName: event.node_name ? canonicalNodeDisplayName(event.node_name) : event.span_id.slice(0, 8),
         status,
         eventCount: 1,
         events: [event],
@@ -199,6 +207,10 @@ export function getEventTypeColor(eventType: string): string {
       return "#67e8f9";
     case "error":
       return "#f87171";
+    case "breakpoint":
+      return "#ef4444";
+    case "state_injection":
+      return "#3b82f6";
     default:
       return "#94a3b8";
   }
@@ -212,6 +224,8 @@ export function getStatusColor(status: NodeStatus): string {
       return "#4ade80";
     case "error":
       return "#f87171";
+    case "paused":
+      return "#ef4444";
     case "idle":
       return "#94a3b8";
   }

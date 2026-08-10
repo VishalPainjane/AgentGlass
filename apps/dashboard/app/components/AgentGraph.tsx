@@ -20,8 +20,9 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { AgentNode, type AgentNodeData } from "./AgentNode";
-import { useSelectedTraceEvents } from "../hooks/useTraceStore";
-import { deriveNodesFromEvents, deriveEdgesFromEvents } from "../lib/eventHelpers";
+import GraphTraceOverlay from "./GraphTraceOverlay";
+import { useTraceStore, useSelectedTraceEvents } from "../hooks/useTraceStore";
+import { deriveNodesFromEvents, deriveEdgesFromEvents, canonicalNodeDisplayName } from "../lib/eventHelpers";
 import { computeLayout } from "../lib/graphLayout";
 
 /* ------------------------------------------------------------------ */
@@ -38,6 +39,8 @@ const nodeTypes: NodeTypes = {
 
 export default function AgentGraph() {
   const events = useSelectedTraceEvents();
+  const isFetching = useTraceStore((s) => s.isFetching);
+  const connectionStatus = useTraceStore((s) => s.connectionStatus);
 
   const { flowNodes, flowEdges } = useMemo(() => {
     if (events.length === 0) {
@@ -58,7 +61,7 @@ export default function AgentGraph() {
         type: "agent",
         position: pos,
         data: {
-          label: node.nodeName,
+          label: canonicalNodeDisplayName(node.nodeName),
           status: node.status,
           eventCount: node.eventCount,
           spanId: node.spanId,
@@ -85,22 +88,41 @@ export default function AgentGraph() {
     // React Flow initialized
   }, []);
 
+  if (isFetching && events.length === 0) {
+    return (
+      <div className="graph-empty">
+        <div className="graph-empty-content">
+          <div className="graph-loading-spinner" />
+          <h2>Loading trace events…</h2>
+          <p>Fetching full event history from the daemon.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (events.length === 0) {
     return (
       <div className="graph-empty">
         <div className="graph-empty-content">
           <div className="graph-empty-icon">◇</div>
-          <h2>Waiting for agent events…</h2>
-          <p>
-            Start your agent script with AgentGlass instrumentation.
-            <br />
-            Events will appear here in real time.
-          </p>
-          <code>
-            pip install agentglass-python
-            <br />
-            # then instrument your LangGraph / agent code
-          </code>
+          <h2>No traces yet</h2>
+          {connectionStatus === "disconnected" ? (
+            <p>
+              Daemon is not connected. Start AgentGlass from the repository root, then run the
+              LangGraph demo.
+            </p>
+          ) : connectionStatus === "connecting" ? (
+            <p>Connecting to the AgentGlass daemon…</p>
+          ) : (
+            <p>
+              Daemon is connected. Run the canonical LangGraph demo to generate a real trace.
+            </p>
+          )}
+          <div style={{ display: "flex", gap: "12px", marginTop: "16px", flexDirection: "column", alignItems: "center" }}>
+            <code style={{ textAlign: "left", whiteSpace: "pre-wrap" }}>
+              {`pnpm demo -- --compare\n\n# or, if services are already running:\ncd sdk-python\npython examples/demo_support_research_agent.py`}
+            </code>
+          </div>
         </div>
       </div>
     );
@@ -108,16 +130,24 @@ export default function AgentGraph() {
 
   return (
     <div className="graph-container">
+      <GraphTraceOverlay />
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
         onInit={onInit}
+        onNodeClick={(_event, node) => {
+          const spanId = (node.data as AgentNodeData).spanId;
+          if (spanId) {
+            useTraceStore.getState().selectNode(spanId);
+          }
+        }}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
+        style={{ width: "100%", height: "100%" }}
       >
         <Background
           variant={BackgroundVariant.Dots}

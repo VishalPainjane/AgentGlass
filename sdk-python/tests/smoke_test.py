@@ -20,7 +20,7 @@ import pytest
 from agentglass_python import AgentGlassClient, AgentGlassEvent
 
 
-DAEMON_URL = "http://127.0.0.1:7777"
+DAEMON_URL = "http://127.0.0.1:8765"
 
 
 def _wait_for_daemon(timeout: float = 5.0) -> bool:
@@ -41,7 +41,7 @@ def _wait_for_daemon(timeout: float = 5.0) -> bool:
 def daemon_ready():
     """Ensure daemon is running before tests execute."""
     if not _wait_for_daemon():
-        pytest.skip("AgentGlass daemon not running at localhost:7777")
+        pytest.skip("AgentGlass daemon not running at localhost:8765")
 
 
 @pytest.fixture

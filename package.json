@@ -7,6 +7,7 @@
     "dev:daemon": "pnpm --filter @agentglass/daemon dev",
     "dev:dashboard": "pnpm --filter @agentglass/dashboard dev",
     "dev:up": "pnpm --filter @agentglass/cli dev up",
+    "demo": "pnpm --filter @agentglass/cli dev demo",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",

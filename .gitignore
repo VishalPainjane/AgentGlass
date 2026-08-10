@@ -15,3 +15,5 @@ __pycache__/
 .venv/
 
 .agentglass/
+agentglass_internal_logs/
+

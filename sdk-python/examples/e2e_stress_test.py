@@ -17,8 +17,8 @@ Covers: ingestion, WebSocket broadcast, graph rendering, time-travel data,
         blob offloading, idempotency, error nodes, REST endpoints.
 
 Prerequisites:
-    1. Daemon running on :7777
-    2. Dashboard running on :3000
+    1. Daemon running on :8765
+    2. Dashboard running on :3456
     3. pip install -e sdk-python
     4. python sdk-python/examples/e2e_stress_test.py
 """
@@ -35,7 +35,7 @@ import httpx
 from agentglass_python import AgentGlassClient, AgentGlassEvent
 
 
-DAEMON = "http://127.0.0.1:7777"
+DAEMON = "http://127.0.0.1:8765"
 PASS = "\033[92mPASS\033[0m"
 FAIL = "\033[91mFAIL\033[0m"
 WARN = "\033[93mWARN\033[0m"
@@ -422,6 +422,45 @@ def test_404() -> None:
     record("Missing blob returns 404", r2.status_code == 404)
 
 
+# ── 10) God Mode command polling ────────────────────────────────────────
+def test_god_mode(client: AgentGlassClient) -> None:
+    print("\n=== TEST 10: God Mode Live Injection ===")
+    gm_trace = str(uuid4())
+    gm_span = str(uuid4())
+
+    # 1. Queue a command via REST
+    payload = {
+        "trace_id": gm_trace,
+        "target_span": gm_span,
+        "command_type": "inject",
+        "payload": {"field": "temperature", "value": "0.0"}
+    }
+    r = httpx.post(f"{DAEMON}/v1/commands", json=payload, timeout=5)
+    record("POST /v1/commands accepted", r.status_code == 202)
+    
+    if r.status_code == 202:
+        cmd_id = r.json().get("id")
+        record("Command returned ID", bool(cmd_id))
+
+    time.sleep(0.3)
+
+    # 2. Check if the daemon persisted the audit log event
+    r2 = httpx.get(f"{DAEMON}/v1/traces/{gm_trace}/events", timeout=5)
+    events = r2.json().get("events", [])
+    gm_events = [e for e in events if e["event_type"] == "god_mode_command"]
+    record("god_mode_command event audit logged", len(gm_events) == 1)
+
+    # 3. Poll commands using the SDK
+    commands = client.poll_commands(trace_id=gm_trace, span_id=gm_span)
+    record("SDK polled 1 pending command", len(commands) == 1)
+    if commands:
+        record("Polled command matches", commands[0].get("command_type") == "inject")
+
+    # 4. Poll again to verify it was auto-acknowledged
+    commands2 = client.poll_commands(trace_id=gm_trace, span_id=gm_span)
+    record("Command auto-acknowledged (second poll empty)", len(commands2) == 0)
+
+
 # ── MAIN ────────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
@@ -462,6 +501,9 @@ def main() -> None:
     # 9) 404
     test_404()
 
+    # 10) God Mode
+    test_god_mode(client)
+
     # ── Summary ──
     total = len(results)
     passed = sum(1 for _, ok, _ in results if ok)
@@ -481,7 +523,7 @@ def main() -> None:
         print("=" * 60)
 
     print(f"\n  Main trace ID: {trace_id}")
-    print(f"  Dashboard: http://localhost:3000")
+    print(f"  Dashboard: http://localhost:3456")
     print(f"  (Open the dashboard and select the trace to see the full graph)")
     print()
 

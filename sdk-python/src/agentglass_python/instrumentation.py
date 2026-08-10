@@ -3,12 +3,41 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
 from .client import AgentGlassClient, _current_span_id, _current_trace_id
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _safe_serialize(obj: Any) -> Any:
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _safe_serialize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(x) for x in obj]
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        return str(obj)
+
+
+def _extract_inputs(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    if len(args) == 1 and isinstance(args[0], dict):
+        return _safe_serialize(args[0])
+    if args or kwargs:
+        return _safe_serialize({"args": args, "kwargs": kwargs})
+    return {}
+
+
+def _extract_outputs(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        return _safe_serialize(result)
+    return {"result": _safe_serialize(result)}
 
 
 def with_agentglass(
@@ -43,7 +72,7 @@ def with_agentglass(
                         "parent_span_id": parent,
                         "event_type": "agent_start",
                         "node_name": name,
-                        "payload": {"name": name},
+                        "payload": {"inputs": _extract_inputs(args, kwargs)},
                     }
                 )
 
@@ -56,7 +85,7 @@ def with_agentglass(
                             "parent_span_id": parent,
                             "event_type": "agent_end",
                             "node_name": name,
-                            "payload": {"name": name},
+                            "payload": {"outputs": _extract_outputs(result)},
                         }
                     )
                     return result
@@ -68,7 +97,7 @@ def with_agentglass(
                             "parent_span_id": parent,
                             "event_type": "error",
                             "node_name": name,
-                            "payload": {"name": name, "message": str(error)},
+                            "payload": {"message": str(error), "type": type(error).__name__},
                         }
                     )
                     raise
@@ -96,7 +125,7 @@ def with_agentglass(
                         "parent_span_id": parent,
                         "event_type": "agent_start",
                         "node_name": name,
-                        "payload": {"name": name},
+                        "payload": {"inputs": _extract_inputs(args, kwargs)},
                     }
                 )
 
@@ -109,7 +138,7 @@ def with_agentglass(
                             "parent_span_id": parent,
                             "event_type": "agent_end",
                             "node_name": name,
-                            "payload": {"name": name},
+                            "payload": {"outputs": _extract_outputs(result)},
                         }
                     )
                     return result
@@ -121,7 +150,7 @@ def with_agentglass(
                             "parent_span_id": parent,
                             "event_type": "error",
                             "node_name": name,
-                            "payload": {"name": name, "message": str(error)},
+                            "payload": {"message": str(error), "type": type(error).__name__},
                         }
                     )
                     raise

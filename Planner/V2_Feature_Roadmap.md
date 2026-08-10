@@ -226,7 +226,7 @@ Ship a keyboard-driven terminal interface that renders the agent graph, event ti
 
 ### Scope
 1. Python package: `agentglass-tui` using the `textual` framework
-2. WebSocket client connecting to `ws://127.0.0.1:7777/ws` for live events
+2. WebSocket client connecting to `ws://127.0.0.1:8765/ws` for live events
 3. Panels: graph view (ASCII DAG), event timeline, payload inspector
 4. Keybindings: `j/k` scroll, `Enter` select, `Tab` switch panes, `q` quit, `f` fork, `i` inject
 5. Color theme matching the web dashboard's glassmorphism palette (cyan/green/amber on dark)

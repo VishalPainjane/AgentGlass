@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, GitBranch, Database, Settings, BookOpen, Moon, Sun } from "lucide-react";
+import ConnectionStatus from "./ConnectionStatus";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -50,12 +51,16 @@ export default function Sidebar() {
         })}
       </nav>
       
-      <div className="sidebar-footer" style={{ paddingBottom: "16px", width: "100%", paddingLeft: "12px", paddingRight: "12px" }}>
+      <div className="sidebar-footer" style={{ paddingBottom: "16px", width: "100%", paddingLeft: "12px", paddingRight: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ padding: "0 10px", marginBottom: "4px" }}>
+          <ConnectionStatus />
+        </div>
         <button 
           onClick={toggleTheme} 
           className="sidebar-link" 
           style={{ width: "100%", border: "none", background: "none", cursor: "pointer", textAlign: "left" }}
         >
+
           {theme === "dark" ? <Sun size={20} className="sidebar-icon" /> : <Moon size={20} className="sidebar-icon" />}
           <span className="sidebar-label">{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
         </button>

@@ -5,7 +5,6 @@ import TraceComparePanel from "../components/TraceComparePanel";
 import { useDaemonSocket } from "../hooks/useDaemonSocket";
 
 export default function ComparePage() {
-  // Connect to the daemon WebSocket
   useDaemonSocket();
 
   return (
