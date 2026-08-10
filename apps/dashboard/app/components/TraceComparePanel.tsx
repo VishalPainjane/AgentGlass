@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useTraceStore } from "../hooks/useTraceStore";
+import { useMemo, useState, useEffect } from "react";
+import { useTraceStore, useCompareTraceSummary, useSelectedTraceSummary } from "../hooks/useTraceStore";
 import { formatDuration, formatTimestamp, type PersistedEvent } from "../lib/eventHelpers";
+import { buildExecutionDivergence, buildDebuggingNarrative } from "@agentglass/sdk-ts/browser";
+import { buildEvaluationDivergence } from "@agentglass/sdk-ts/browser";
+import type { TraceEvaluation } from "@agentglass/sdk-ts/browser";
 import { useHydratedPayload } from "../hooks/useHydratedPayload";
 import { useHasMounted } from "../hooks/useHasMounted";
 
@@ -444,6 +447,8 @@ function FormattedValue({ value }: { value: unknown }) {
 
 export default function TraceComparePanel() {
   const [showOnlyChanges, setShowOnlyChanges] = useState(true);
+  const [primaryEvaluation, setPrimaryEvaluation] = useState<TraceEvaluation | null>(null);
+  const [compareEvaluation, setCompareEvaluation] = useState<TraceEvaluation | null>(null);
 
   const selectedTraceId = useTraceStore((s) => s.selectedTraceId);
   const compareTraceId = useTraceStore((s) => s.compareTraceId);
@@ -465,19 +470,65 @@ export default function TraceComparePanel() {
     return getTerminalOutput(compareEvents);
   }, [compareEvents, compareTraceId]);
 
-  const primarySummary = useMemo(
+  const primaryCanonicalSummary = useSelectedTraceSummary();
+  const compareCanonicalSummary = useCompareTraceSummary();
+
+  const primaryExecSummary = useMemo(
     () => summarizeTrace(selectedTraceId, primaryEvents),
     [selectedTraceId, primaryEvents]
   );
-  const compareSummary = useMemo(
+  const compareExecSummary = useMemo(
     () => summarizeTrace(compareTraceId, compareEvents),
     [compareTraceId, compareEvents]
   );
+  const divergenceRows = useMemo(
+    () => buildExecutionDivergence(primaryCanonicalSummary, compareCanonicalSummary),
+    [primaryCanonicalSummary, compareCanonicalSummary]
+  );
+
+  const causalNarrative = useMemo(() => {
+    if (!compareCanonicalSummary) return null;
+    const narrative = buildDebuggingNarrative(compareCanonicalSummary);
+    return narrative?.causalChain ?? null;
+  }, [compareCanonicalSummary]);
+
+  const evaluationDivergenceRows = useMemo(
+    () => buildEvaluationDivergence(primaryEvaluation, compareEvaluation),
+    [primaryEvaluation, compareEvaluation]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEvaluation(traceId: string | null): Promise<TraceEvaluation | null> {
+      if (!traceId) return null;
+      const { daemonHttp } = await import("../lib/daemonApi");
+      const res = await fetch(daemonHttp(`/v1/traces/${traceId}/evaluation`));
+      if (!res.ok) return null;
+      return (await res.json()) as TraceEvaluation;
+    }
+
+    (async () => {
+      const [primary, compare] = await Promise.all([
+        loadEvaluation(selectedTraceId),
+        loadEvaluation(compareTraceId),
+      ]);
+      if (!cancelled) {
+        setPrimaryEvaluation(primary);
+        setCompareEvaluation(compare);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTraceId, compareTraceId]);
 
   const { hydrated: primaryHydrated, isLoadingBlob: loadingPrimary } = useHydratedPayload(primaryOutput);
   const { hydrated: compareHydrated, isLoadingBlob: loadingCompare } = useHydratedPayload(compareOutput);
 
-  const hasBothBranches = Boolean(primarySummary && compareSummary);
+  const hasBothBranches = Boolean(primaryExecSummary && compareExecSummary);
+  const hasCanonicalSummaries = Boolean(primaryCanonicalSummary && compareCanonicalSummary);
 
   const diffRows = useMemo(() => {
     if (!hasBothBranches) return [];
@@ -502,7 +553,7 @@ export default function TraceComparePanel() {
   }, [diffRows]);
 
   const delta = useMemo(() => {
-    if (!primarySummary || !compareSummary) {
+    if (!primaryExecSummary || !compareExecSummary) {
       return {
         eventDelta: 0,
         tokenDelta: 0,
@@ -511,11 +562,11 @@ export default function TraceComparePanel() {
     }
 
     return {
-      eventDelta: compareSummary.eventCount - primarySummary.eventCount,
-      tokenDelta: compareSummary.totalTokens - primarySummary.totalTokens,
-      durationDeltaMicros: compareSummary.durationMicros - primarySummary.durationMicros,
+      eventDelta: compareExecSummary.eventCount - primaryExecSummary.eventCount,
+      tokenDelta: compareExecSummary.totalTokens - primaryExecSummary.totalTokens,
+      durationDeltaMicros: compareExecSummary.durationMicros - primaryExecSummary.durationMicros,
     };
-  }, [compareSummary, primarySummary]);
+  }, [compareExecSummary, primaryExecSummary]);
 
   if (!selectedTraceId) {
     return (
@@ -554,7 +605,7 @@ export default function TraceComparePanel() {
       </div>
 
       <div className="compare-summary-layout">
-        <TraceSummaryCard title="Branch Alpha (Primary)" summary={primarySummary} branch="primary" />
+        <TraceSummaryCard title="Branch Alpha (Primary)" summary={primaryExecSummary} branch="primary" />
 
         <section className="compare-delta-card">
           <h3>Branch Delta</h3>
@@ -572,19 +623,93 @@ export default function TraceComparePanel() {
           </div>
           <div className="compare-summary-row">
             <span>Primary Final Event</span>
-            <strong>{primarySummary?.finalEventType ?? "n/a"}</strong>
+            <strong>{primaryExecSummary?.finalEventType ?? "n/a"}</strong>
           </div>
           <div className="compare-summary-row">
             <span>Compare Final Event</span>
-            <strong>{compareSummary?.finalEventType ?? "n/a"}</strong>
+            <strong>{compareExecSummary?.finalEventType ?? "n/a"}</strong>
           </div>
           <p className="compare-delta-help">
             Positive values mean Branch Beta consumed more resources or ran longer than Branch Alpha.
           </p>
         </section>
 
-        <TraceSummaryCard title="Branch Beta (Compare)" summary={compareSummary} branch="compare" />
+        <TraceSummaryCard title="Branch Beta (Compare)" summary={compareExecSummary} branch="compare" />
       </div>
+
+      {hasCanonicalSummaries && divergenceRows.length > 0 && (
+        <section className="compare-divergence-section">
+          <div className="compare-diff-header">
+            <h3>Execution Divergence</h3>
+            <span>How Variant A and Variant B paths differ</span>
+          </div>
+          <div className="compare-divergence-table-wrap">
+            <table className="compare-divergence-table">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Branch Alpha</th>
+                  <th>Branch Beta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {divergenceRows.map((row) => (
+                  <tr
+                    key={row.label}
+                    className={row.changed ? "compare-divergence-changed" : ""}
+                  >
+                    <td>{row.label}</td>
+                    <td>{row.primary}</td>
+                    <td>{row.compare}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {causalNarrative && (
+        <section className="compare-divergence-section">
+          <div className="compare-diff-header">
+            <h3>Why They Differed</h3>
+            <span>Deterministic causal chain from Variant B trace data</span>
+          </div>
+          <p className="compare-causal-narrative">{causalNarrative}</p>
+        </section>
+      )}
+
+      {primaryEvaluation && compareEvaluation && evaluationDivergenceRows.length > 0 && (
+        <section className="compare-divergence-section">
+          <div className="compare-diff-header">
+            <h3>Evaluation Delta</h3>
+            <span>Deterministic quality scores from the evaluation engine</span>
+          </div>
+          <div className="compare-divergence-table-wrap">
+            <table className="compare-divergence-table">
+              <thead>
+                <tr>
+                  <th>Evaluator</th>
+                  <th>Branch Alpha</th>
+                  <th>Branch Beta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evaluationDivergenceRows.map((row) => (
+                  <tr
+                    key={row.label}
+                    className={row.changed ? "compare-divergence-changed" : ""}
+                  >
+                    <td>{row.label}</td>
+                    <td>{row.primary}</td>
+                    <td>{row.compare}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {hasBothBranches ? (
         <section className="compare-diff-section">
@@ -627,7 +752,7 @@ export default function TraceComparePanel() {
         <div className="compare-col">
           <div className="compare-col-header">
             <h3>Branch Alpha Output</h3>
-            <span className="trace-id">{primarySummary?.flowName ?? selectedTraceId.slice(0, 8)}</span>
+            <span className="trace-id">{primaryExecSummary?.flowName ?? selectedTraceId.slice(0, 8)}</span>
           </div>
           <div className="compare-col-body">
             {loadingPrimary ? (
@@ -643,10 +768,10 @@ export default function TraceComparePanel() {
         <div className="compare-col">
           <div className="compare-col-header">
             <h3>Branch Beta Output</h3>
-            <span className="trace-id">{compareSummary?.flowName ?? "Not selected"}</span>
+            <span className="trace-id">{compareExecSummary?.flowName ?? "Not selected"}</span>
           </div>
           <div className="compare-col-body">
-            {compareSummary ? (
+            {compareExecSummary ? (
               loadingCompare ? (
                 <div>Loading payload...</div>
               ) : (

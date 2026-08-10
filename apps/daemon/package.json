@@ -8,9 +8,11 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --out-dir dist",
     "start": "node dist/index.js",
     "lint": "echo No lint configured for daemon yet",
+    "test": "node --import tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentglass/sdk-ts": "workspace:*",
     "better-sqlite3": "^11.5.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"

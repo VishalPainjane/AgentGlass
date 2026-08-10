@@ -16,19 +16,16 @@ import EventTimeline from "../components/EventTimeline";
 import NodeInspector from "../components/NodeInspector";
 import TimeScrubber from "../components/TimeScrubber";
 import GodModeDrawer from "../components/GodModeDrawer";
-import { useDaemonSocket } from "../hooks/useDaemonSocket";
 
 export default function LiveGraphPage() {
   const [godModeOpen, setGodModeOpen] = useState(false);
-
-  useDaemonSocket();
 
   return (
     <div className="dashboard" style={{ position: "relative" }}>
       <TopBar />
       <div className="dashboard-body">
         <EventTimeline />
-        <main className="dashboard-main">
+        <main className="dashboard-main dashboard-main-graph">
           <AgentGraph />
         </main>
         <NodeInspector />

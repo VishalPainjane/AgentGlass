@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useEffect, useState, useMemo } from "react";
-import { runLiveDemo } from "./lib/demoRunner";
+import { useEffect, useState } from "react";
+import { checkDaemonReady, getDemoStartInstructions } from "./lib/demoRunner";
+import PipelineGraphPreview from "./components/PipelineGraphPreview";
 
 const featureCards = [
   {
@@ -17,8 +18,8 @@ const featureCards = [
     icon: "🔒",
   },
   {
-    title: "Execution Branching (GitFork)",
-    description: "Compare traces side-by-side to evaluate prompt changes, tool behavior differences, and regressions quickly.",
+    title: "Trace Compare",
+    description: "Compare two trace runs side-by-side to evaluate prompt changes, tool behavior differences, and regressions quickly.",
     icon: "🔀",
   },
   {
@@ -52,18 +53,24 @@ export default function LandingPage() {
     setMounted(true);
   }, []);
 
-  const handleRunDemo = async () => {
+  const handleOpenLive = async () => {
     setDemoLoading(true);
-    setDemoStatus("Starting daemon...");
-    
+    setDemoStatus("Checking daemon…");
+
     try {
-      setDemoStatus("Running real agent...");
-      await runLiveDemo();
-      setDemoStatus("Done!");
+      await checkDaemonReady();
+      setDemoStatus("Daemon ready");
       window.location.href = "/live";
-    } catch (e) {
-      setDemoStatus("Demo failed: " + (e instanceof Error ? e.message : "Unknown error"));
+    } catch {
+      setDemoStatus("");
       setDemoLoading(false);
+      window.alert(
+        [
+          "AgentGlass daemon is not running.",
+          "",
+          getDemoStartInstructions(),
+        ].join("\n")
+      );
     }
   };
 
@@ -142,31 +149,25 @@ export default function LandingPage() {
           </p>
           
           <div className="flex items-center justify-center gap-4 flex-wrap">
-            <button 
-              onClick={handleRunDemo}
-              disabled={demoLoading}
-              className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+            <Link
+              href="/docs"
+              className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
             >
               <span className="relative z-10 flex items-center gap-2">
-                {demoLoading ? (
-                  <>
-                    <span className="animate-spin">⟳</span>
-                    {demoStatus || "Running..."}
-                  </>
-                ) : (
-                  <>
-                    <span>⚡</span> Try Live Demo
-                  </>
-                )}
+                <span>▶</span> Run Demo: pnpm demo -- --compare
               </span>
-              {!demoLoading && (
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
-              )}
-            </button>
-            <Link href="/live" className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm">
-              Start Debugging
             </Link>
+            <button 
+              onClick={handleOpenLive}
+              disabled={demoLoading}
+              className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm disabled:opacity-50"
+            >
+              {demoLoading ? (demoStatus || "Checking…") : "Open Live Dashboard"}
+            </button>
           </div>
+          <p className="mt-4 text-sm text-slate-500 font-mono">
+            One-time: .\scripts\setup-ollama.ps1 · Every run: pnpm demo -- --compare
+          </p>
         </motion.div>
 
         {/* App Preview Mockup */}
@@ -184,17 +185,9 @@ export default function LandingPage() {
             <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
             <div className="mx-auto text-xs text-slate-500 font-mono">AgentGlass Workspace</div>
           </div>
-          <div className="p-8 aspect-video flex items-center justify-center relative overflow-hidden">
-            {/* Subtle grid background */}
-            <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
-            <div className="text-center relative z-10">
-              <div className="w-24 h-24 mx-auto mb-6 rounded-full border border-emerald-500/30 flex items-center justify-center bg-emerald-500/10 shadow-[0_0_30px_rgba(16,185,129,0.2)] relative">
-                <span className="text-4xl z-10 relative">✨</span>
-                {/* Glowing ring animation */}
-                <div className="absolute inset-0 rounded-full border border-emerald-500/50 animate-ping" style={{ animationDuration: '3s' }}></div>
-              </div>
-              <p className="text-slate-400 font-mono text-sm">Waiting for agent telemetry...</p>
-            </div>
+          <div className="p-4 aspect-video flex items-center justify-center relative overflow-hidden">
+            <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+            <PipelineGraphPreview />
           </div>
         </motion.div>
       </main>

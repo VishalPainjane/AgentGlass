@@ -86,9 +86,61 @@ export default function NodeInspector() {
   const retrievalResults = useMemo(() => {
     if (hydratedOutput?.retrieval_results) return hydratedOutput.retrieval_results;
     if (hydratedOutput?.result?.retrieval_results) return hydratedOutput.result.retrieval_results;
+    if (hydratedOutput?.outputs?.retrieval_results) return hydratedOutput.outputs.retrieval_results;
     if (hydratedOutput?.output?.retrieval_results) return hydratedOutput.output.retrieval_results;
     return null;
   }, [hydratedOutput]);
+
+  const llmTelemetry = useMemo(() => {
+    if (!node) return null;
+    const request = node.events.find((e) => e.event_type === "llm_request");
+    const response = node.events.find((e) => e.event_type === "llm_response");
+    if (!request && !response) return null;
+
+    const params = request?.payload?.params;
+    const provider =
+      (typeof request?.payload?.provider === "string" ? request.payload.provider : null) ??
+      (isRecord(params) && typeof params._type === "string" ? params._type : null);
+    const model =
+      (typeof request?.payload?.model === "string" ? request.payload.model : null) ??
+      request?.node_name ??
+      null;
+
+    let duration: string | null = null;
+    if (request && response) {
+      const durationMicros = response.payload?.duration_micros;
+      if (typeof durationMicros === "number") {
+        duration = `${(durationMicros / 1000).toFixed(1)}ms`;
+      }
+    }
+
+    const tokenUsage = response?.payload?.token_usage;
+    let tokensLabel = "not available";
+    if (isRecord(tokenUsage)) {
+      const input = tokenUsage.input_tokens ?? tokenUsage.prompt_tokens ?? tokenUsage.input;
+      const output = tokenUsage.output_tokens ?? tokenUsage.completion_tokens ?? tokenUsage.output;
+      if (input != null || output != null) {
+        tokensLabel = `${input ?? "?"} in / ${output ?? "?"} out`;
+      }
+    }
+
+    return {
+      provider: provider ?? "not captured",
+      model: model ?? "not captured",
+      duration: duration ?? (request && response ? "captured in span timing" : "not captured"),
+      tokens: tokensLabel,
+      finishReason:
+        typeof response?.payload?.finish_reason === "string"
+          ? response.payload.finish_reason
+          : "not captured",
+      hasInput: Boolean(request?.payload?.prompts),
+      hasOutput: Boolean(response?.payload?.response),
+    };
+  }, [node]);
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
 
   const queryForRag = useMemo(() => {
     if (hydratedInput?.query) return hydratedInput.query;
@@ -217,6 +269,20 @@ export default function NodeInspector() {
             </div>
           </div>
 
+          {/* LLM telemetry strip */}
+          {llmTelemetry && (
+            <div className="inspector-llm-telemetry">
+              <h4>LLM Call</h4>
+              <div className="inspector-llm-grid">
+                <span>Provider: <strong>{llmTelemetry.provider}</strong></span>
+                <span>Model: <strong>{llmTelemetry.model}</strong></span>
+                <span>Duration: <strong>{llmTelemetry.duration}</strong></span>
+                <span>Tokens: <strong>{llmTelemetry.tokens}</strong></span>
+                <span>Finish: <strong>{llmTelemetry.finishReason}</strong></span>
+              </div>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="inspector-tabs">
             {(["input", "output", "events"] as InspectorTab[]).map((tab) => (
@@ -264,6 +330,19 @@ export default function NodeInspector() {
                   <div style={{ color: "#f87171" }}>{analysisContent.error}</div>
                 ) : analysisContent ? (
                   <>
+                    {analysisContent.isFallback && (
+                      <div style={{
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        backgroundColor: "rgba(251, 191, 36, 0.12)",
+                        border: "1px solid rgba(251, 191, 36, 0.35)",
+                        color: "#fbbf24",
+                        fontSize: "0.85rem",
+                      }}>
+                        Ollama is not available. This is a fallback summary, not AI-generated analysis.
+                        Install and run Ollama to enable real AutoRCA.
+                      </div>
+                    )}
                     <div>
                       <h4 style={{ color: "#f87171", margin: "0 0 4px 0" }}>Root Cause</h4>
                       <p style={{ margin: 0, fontSize: "0.95rem" }}>{analysisContent.rootCause}</p>

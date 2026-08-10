@@ -6,6 +6,7 @@ import { VariableSizeList as List, ListChildComponentProps } from "react-window"
 interface VirtualizedListProps<T> {
   items: T[];
   height: number;
+  width?: number;
   itemHeight?: (index: number) => number;
   renderItem: (item: T, index: number, style: React.CSSProperties) => React.ReactNode;
   overscanCount?: number;
@@ -15,6 +16,7 @@ interface VirtualizedListProps<T> {
 export function VirtualizedList<T>({
   items,
   height,
+  width = 1000,
   itemHeight,
   renderItem,
   overscanCount = 5,
@@ -40,6 +42,7 @@ export function VirtualizedList<T>({
     <List
       ref={listRef}
       height={height}
+      width={width}
       itemCount={items.length}
       itemSize={getItemSize}
       overscanCount={overscanCount}

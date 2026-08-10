@@ -4,22 +4,25 @@
  * Connects to the local AgentGlass daemon, handles bootstrap
  * and real-time event messages, and auto-reconnects with
  * exponential backoff. Picks up connection settings from localStorage.
+ *
+ * Synthetic demo traces are disabled by default. Set
+ * NEXT_PUBLIC_DEMO_FALLBACK=true only for UI development without a daemon.
  */
 
 "use client";
 
+import type { TraceSummary } from "@agentglass/sdk-ts/browser";
 import { useEffect, useRef, useCallback } from "react";
 import { useTraceStore } from "./useTraceStore";
 import type { PersistedEvent } from "../lib/eventHelpers";
-import { getDaemonWsUrl, isLocalhostHost } from "../lib/daemonApi";
-import { createDemoTraceEvents } from "../lib/demoTrace";
+import { getDaemonWsUrl } from "../lib/daemonApi";
 
-const HAS_CUSTOM_DAEMON_WS_URL = typeof process !== "undefined" && Boolean(process.env.NEXT_PUBLIC_DAEMON_WS_URL);
-const DEMO_FALLBACK_ENABLED = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_FALLBACK !== "false";
+const DEMO_FALLBACK_ENABLED =
+  typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_FALLBACK === "true";
 
 const BASE_RECONNECT_MS = 1500;
 const MAX_RECONNECT_MS = 16000;
-const STATUS_DEBOUNCE_MS = 300; // Debounce status changes to prevent flicker
+const STATUS_DEBOUNCE_MS = 300;
 
 export function useDaemonSocket(): void {
   const wsRef = useRef<WebSocket | null>(null);
@@ -30,21 +33,15 @@ export function useDaemonSocket(): void {
 
   const addEvent = useTraceStore((s) => s.addEvent);
   const bootstrap = useTraceStore((s) => s.bootstrap);
+  const setSummary = useTraceStore((s) => s.setSummary);
+  const fetchTraces = useTraceStore((s) => s.fetchTraces);
   const setConnectionStatus = useTraceStore((s) => s.setConnectionStatus);
   const setDemoMode = useTraceStore((s) => s.setDemoMode);
 
-  const canUseDemoFallback =
-    typeof window !== "undefined" &&
-    DEMO_FALLBACK_ENABLED &&
-    !HAS_CUSTOM_DAEMON_WS_URL &&
-    !isLocalhostHost(window.location.hostname);
-
-  // Debounced status setter to prevent rapid flicker during reconnects
   const setStatusDebounced = useCallback(
     (status: "connecting" | "connected" | "disconnected") => {
       if (!mountedRef.current) return;
 
-      // "connected" should apply immediately (user sees green fast)
       if (status === "connected") {
         if (statusTimer.current) {
           clearTimeout(statusTimer.current);
@@ -54,8 +51,7 @@ export function useDaemonSocket(): void {
         return;
       }
 
-      // "connecting" and "disconnected" are debounced
-      if (statusTimer.current) return; // already pending
+      if (statusTimer.current) return;
       statusTimer.current = setTimeout(() => {
         statusTimer.current = null;
         if (mountedRef.current) {
@@ -66,25 +62,13 @@ export function useDaemonSocket(): void {
     [setConnectionStatus]
   );
 
-  const loadDemoTrace = useCallback(() => {
-    if (!mountedRef.current) return;
-    const state = useTraceStore.getState();
-    if (state.events.length > 0) return;
-
-    bootstrap(createDemoTraceEvents());
-    setDemoMode(true);
-    setConnectionStatus("connected");
-  }, [bootstrap, setConnectionStatus, setDemoMode]);
-
   const connectWs = useCallback(() => {
     if (!mountedRef.current) return;
 
-    // Recalculate URL inside connectWs to pick up localStorage changes
     const currentWsUrl = typeof window !== "undefined" ? getDaemonWsUrl() : "ws://127.0.0.1:8765/ws";
 
-    // Clean up previous connection
     if (wsRef.current) {
-      wsRef.current.onclose = null; // prevent recursive reconnect
+      wsRef.current.onclose = null;
       wsRef.current.onerror = null;
       wsRef.current.close();
       wsRef.current = null;
@@ -104,6 +88,7 @@ export function useDaemonSocket(): void {
         reconnectAttempt.current = 0;
         setDemoMode(false);
         setStatusDebounced("connected");
+        void fetchTraces();
       };
 
       ws.onmessage = (messageEvent) => {
@@ -112,9 +97,14 @@ export function useDaemonSocket(): void {
           const data = JSON.parse(String(messageEvent.data));
 
           if (data.type === "bootstrap" && Array.isArray(data.events)) {
-            bootstrap(data.events as PersistedEvent[]);
+            bootstrap(
+              data.events as PersistedEvent[],
+              Array.isArray(data.summaries) ? (data.summaries as TraceSummary[]) : []
+            );
           } else if (data.type === "event" && data.event) {
             addEvent(data.event as PersistedEvent);
+          } else if (data.type === "summary" && data.summary) {
+            setSummary(data.summary as TraceSummary);
           }
         } catch {
           // Ignore malformed messages
@@ -128,22 +118,16 @@ export function useDaemonSocket(): void {
       };
 
       ws.onerror = () => {
-        // onclose will fire after onerror, so just close
         ws.close();
       };
     } catch {
       setStatusDebounced("disconnected");
       scheduleReconnect();
     }
-  }, [addEvent, bootstrap, setStatusDebounced, setDemoMode]);
+  }, [addEvent, bootstrap, fetchTraces, setSummary, setStatusDebounced, setDemoMode]);
 
   const scheduleReconnect = useCallback(() => {
     if (!mountedRef.current) return;
-
-    if (canUseDemoFallback && reconnectAttempt.current >= 2) {
-      loadDemoTrace();
-      return;
-    }
 
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current);
@@ -162,13 +146,18 @@ export function useDaemonSocket(): void {
         connectWs();
       }
     }, delay);
-  }, [canUseDemoFallback, loadDemoTrace, connectWs]);
+  }, [connectWs]);
 
   useEffect(() => {
+    if (DEMO_FALLBACK_ENABLED) {
+      console.warn(
+        "[AgentGlass] NEXT_PUBLIC_DEMO_FALLBACK=true — synthetic traces are enabled for UI development only."
+      );
+    }
+
     mountedRef.current = true;
     connectWs();
 
-    // Listen for storage events (if settings change in another tab)
     const handleStorage = (e: StorageEvent) => {
       if (e.key === "agentglass-settings") {
         connectWs();

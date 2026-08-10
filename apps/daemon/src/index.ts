@@ -8,9 +8,11 @@
 
 import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import { closeDb, dbPath, getRecentEvents } from "./db";
-import { handleRoute, setBroadcastCallback } from "./handlers";
+import { closeDb, dbPath, getRecentEvents, getAllTraceSummaries } from "./db";
+import { handleRoute, setBroadcastCallback, setSummaryBroadcastCallback } from "./handlers";
 import { rowToJson } from "./types";
+import { parseStoredSummary } from "./traceSummary";
+import type { TraceSummary } from "@agentglass/sdk-ts";
 
 const host = process.env.AGENTGLASS_DAEMON_HOST ?? "127.0.0.1";
 const port = Number(process.env.AGENTGLASS_DAEMON_PORT ?? "8765");
@@ -26,7 +28,17 @@ function broadcastEvent(event: Record<string, unknown>): void {
   }
 }
 
+function broadcastSummary(summary: TraceSummary): void {
+  const message = JSON.stringify({ type: "summary", trace_id: summary.trace_id, summary });
+  for (const client of wsClients) {
+    if (client.readyState === client.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
 setBroadcastCallback(broadcastEvent);
+setSummaryBroadcastCallback(broadcastSummary);
 
 const server = createServer((req, res) => {
   handleRoute(req, res);
@@ -38,7 +50,8 @@ wsServer.on("connection", (socket) => {
   wsClients.add(socket);
 
   const recentEvents = getRecentEvents(200).map(rowToJson);
-  socket.send(JSON.stringify({ type: "bootstrap", events: recentEvents }));
+  const summaries = getAllTraceSummaries().map(parseStoredSummary);
+  socket.send(JSON.stringify({ type: "bootstrap", events: recentEvents, summaries }));
 
   socket.on("close", () => {
     wsClients.delete(socket);

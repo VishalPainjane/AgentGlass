@@ -1,9 +1,10 @@
 /**
  * Event helper utilities
- *
- * Derives React Flow nodes and edges from the raw event stream,
- * and provides formatting helpers for the dashboard UI.
  */
+
+import { canonicalNodeDisplayName } from "@agentglass/sdk-ts/browser";
+
+export { canonicalNodeDisplayName };
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -29,6 +30,7 @@ export interface TraceMetadata {
   first_timestamp: number;
   last_timestamp: number;
   has_error: boolean;
+  summary?: import("@agentglass/sdk-ts/browser").TraceSummary;
 }
 
 export type NodeStatus = "running" | "completed" | "error" | "idle" | "paused";
@@ -84,7 +86,7 @@ export function deriveNodesFromEvents(events: PersistedEvent[]): Map<string, Gra
 
       // Update name if we didn't have one
       if (!existing.nodeName && event.node_name) {
-        existing.nodeName = event.node_name;
+        existing.nodeName = canonicalNodeDisplayName(event.node_name);
       }
     } else {
       let status: NodeStatus = "idle";
@@ -96,7 +98,7 @@ export function deriveNodesFromEvents(events: PersistedEvent[]): Map<string, Gra
       nodes.set(event.span_id, {
         spanId: event.span_id,
         parentSpanId: event.parent_span_id,
-        nodeName: event.node_name || event.span_id.slice(0, 8),
+        nodeName: event.node_name ? canonicalNodeDisplayName(event.node_name) : event.span_id.slice(0, 8),
         status,
         eventCount: 1,
         events: [event],

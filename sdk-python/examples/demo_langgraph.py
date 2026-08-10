@@ -8,8 +8,9 @@ It demonstrates how AgentGlass telemetry can be hooked directly into
 a real LangGraph workflow to trace the graph nodes as they execute.
 """
 
-from typing import TypedDict, Annotated
+import argparse
 import time
+from typing import TypedDict, Annotated
 from langchain_core.language_models import FakeListLLM
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
@@ -26,63 +27,92 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 # 3. Define our LangGraph Nodes, decorated with AgentGlass instrumentation
-@with_agentglass(client, name="Researcher")
-def researcher_node(state: AgentState):
-    print("   ▶ Running Researcher Node...")
-    llm = FakeListLLM(responses=[
-        "Here is the research data: 1. LangGraph is a powerful orchestration framework. 2. AgentGlass provides observability."
-    ])
-    
-    # Run the "LLM"
-    response = llm.invoke(state["messages"])
-    time.sleep(0.5)
-    return {"messages": [response]}
+VARIANTS = {
+    "a": {
+        "query": "Research and summarize the integration of AgentGlass with LangGraph.",
+        "researcher_response": (
+            "Here is the research data: 1. LangGraph is a powerful orchestration framework. "
+            "2. AgentGlass provides observability."
+        ),
+        "summarizer_response": (
+            "Summary: LangGraph and AgentGlass work seamlessly together to build and monitor multi-agent workflows."
+        ),
+    },
+    "b": {
+        "query": "Explain how local-first observability helps debug multi-agent systems.",
+        "researcher_response": (
+            "Research notes: 1. Local traces avoid cloud egress. "
+            "2. Time-travel debugging isolates cascading agent failures."
+        ),
+        "summarizer_response": (
+            "Summary: Local-first observability keeps sensitive agent context on-machine while enabling deterministic replay."
+        ),
+    },
+}
 
-@with_agentglass(client, name="Summarizer")
-def summarizer_node(state: AgentState):
-    print("   ▶ Running Summarizer Node...")
-    llm = FakeListLLM(responses=[
-        "Summary: LangGraph and AgentGlass work seamlessly together to build and monitor multi-agent workflows."
-    ])
-    response = llm.invoke(state["messages"])
-    time.sleep(0.5)
-    return {"messages": [response]}
 
-def build_real_langgraph():
-    # Construct the graph
+def build_nodes(client: AgentGlassClient, variant: str):
+    config = VARIANTS[variant]
+
+    @with_agentglass(client, name="Researcher")
+    def researcher_node(state: AgentState):
+        print("   > Running Researcher Node...")
+        llm = FakeListLLM(responses=[config["researcher_response"]])
+        response = llm.invoke(state["messages"])
+        time.sleep(0.5)
+        return {"messages": [response]}
+
+    @with_agentglass(client, name="Summarizer")
+    def summarizer_node(state: AgentState):
+        print("   > Running Summarizer Node...")
+        llm = FakeListLLM(responses=[config["summarizer_response"]])
+        response = llm.invoke(state["messages"])
+        time.sleep(0.5)
+        return {"messages": [response]}
+
+    return researcher_node, summarizer_node
+
+
+def build_real_langgraph(client: AgentGlassClient, variant: str):
+    researcher_node, summarizer_node = build_nodes(client, variant)
+
     workflow = StateGraph(AgentState)
-    
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("summarizer", summarizer_node)
-    
     workflow.set_entry_point("researcher")
     workflow.add_edge("researcher", "summarizer")
     workflow.add_edge("summarizer", END)
-    
     return workflow.compile()
 
+
 def main():
-    print("🔍 AgentGlass + Real LangGraph Demo\n")
-    
-    # Start the trace
+    parser = argparse.ArgumentParser(description="AgentGlass canonical LangGraph interview demo")
+    parser.add_argument(
+        "--variant",
+        choices=sorted(VARIANTS.keys()),
+        default="a",
+        help="Demo input variant (use two variants for trace compare)",
+    )
+    args = parser.parse_args()
+    config = VARIANTS[args.variant]
+
+    print("AgentGlass + Real LangGraph Demo\n")
+    print(f"   Variant: {args.variant.upper()}\n")
+
     client.start_trace()
-    
-    # Build and run the graph
-    graph = build_real_langgraph()
-    
-    initial_state = {"messages": [HumanMessage(content="Research and summarize the integration of AgentGlass with LangGraph.")]}
-    
+    graph = build_real_langgraph(client, args.variant)
+    initial_state = {"messages": [HumanMessage(content=config["query"])]}
+
     print("Executing LangGraph flow...\n")
     result = graph.invoke(initial_state)
-    
-    print("\n✅ Execution Complete.")
+
+    print("\nExecution Complete.")
     print("Final Output:", result["messages"][-1].content)
-    
-    # Wait a moment for async telemetry events to flush
+
     time.sleep(1.0)
     client.close()
-    
-    print("\n✨ Done! Open http://localhost:3456 to see the real LangGraph trace.")
+
+    print("\nDone! Open http://localhost:3456/live to inspect this trace.")
 
 if __name__ == "__main__":
     main()

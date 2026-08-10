@@ -13,10 +13,14 @@ import {
   getPendingCommands,
   updateCommandStatus,
   clearDatabase,
+  dbPath,
   type PersistedEventRow,
 } from "./db";
 import { writeBlob, readBlob } from "./blobStore";
 import { IncomingEventSchema, type IncomingEvent, rowToJson, parseUrl, sendJson, readBody } from "./types";
+import { recomputeAndPersistSummary, getStoredSummary } from "./traceSummary";
+import { runAndPersistEvaluation, getStoredEvaluation } from "./traceEvaluation";
+import type { TraceSummary } from "@agentglass/sdk-ts";
 
 const BLOB_THRESHOLD_BYTES = 10 * 1024;
 
@@ -88,16 +92,37 @@ function persistEventBatch(events: IncomingEvent[]): PersistedEventRow[] {
 }
 
 export type BroadcastCallback = (event: Record<string, unknown>) => void;
+export type SummaryBroadcastCallback = (summary: TraceSummary) => void;
+
 let broadcastCallback: BroadcastCallback | null = null;
+let summaryBroadcastCallback: SummaryBroadcastCallback | null = null;
 
 export function setBroadcastCallback(callback: BroadcastCallback): void {
-  broadcastCallback = null;
   broadcastCallback = callback;
+}
+
+export function setSummaryBroadcastCallback(callback: SummaryBroadcastCallback): void {
+  summaryBroadcastCallback = callback;
 }
 
 function broadcast(event: Record<string, unknown>): void {
   if (broadcastCallback) {
     broadcastCallback(event);
+  }
+}
+
+function broadcastSummary(summary: TraceSummary): void {
+  if (summaryBroadcastCallback) {
+    summaryBroadcastCallback(summary);
+  }
+}
+
+function refreshSummariesForTraces(traceIds: Iterable<string>): void {
+  for (const traceId of traceIds) {
+    const summary = recomputeAndPersistSummary(traceId);
+    if (summary) {
+      broadcastSummary(summary);
+    }
   }
 }
 
@@ -121,6 +146,9 @@ function handleIngest(req: import("node:http").IncomingMessage, res: import("nod
       for (const p of persisted) {
         broadcast(rowToJson(p));
       }
+
+      const affectedTraceIds = new Set(persisted.map((p) => p.trace_id));
+      refreshSummariesForTraces(affectedTraceIds);
 
       sendJson(res, 202, { accepted: persisted.length });
     })
@@ -200,11 +228,67 @@ function handlePollCommands(req: import("node:http").IncomingMessage, res: impor
 }
 
 function handleListTraces(_req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse): void {
-  const traces = getTraces().map((t) => ({
-    ...t,
-    has_error: Boolean(t.has_error),
-  }));
+  const traces = getTraces().map((t) => {
+    const summary = getStoredSummary(t.trace_id) ?? recomputeAndPersistSummary(t.trace_id);
+    return {
+      ...t,
+      has_error: Boolean(t.has_error),
+      summary: summary ?? undefined,
+    };
+  });
   sendJson(res, 200, { traces });
+}
+
+function handleGetTrace(_req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, traceId: string): void {
+  const events = getEventsByTrace(traceId);
+  if (events.length === 0) {
+    sendJson(res, 404, { error: "trace_not_found" });
+    return;
+  }
+
+  const traceMeta = getTraces().find((t) => t.trace_id === traceId);
+  const summary = getStoredSummary(traceId) ?? recomputeAndPersistSummary(traceId);
+
+  sendJson(res, 200, {
+    trace: traceMeta
+      ? {
+          ...traceMeta,
+          has_error: Boolean(traceMeta.has_error),
+        }
+      : { trace_id: traceId, event_count: events.length },
+    summary: summary ?? undefined,
+  });
+}
+
+async function handleGetTraceEvaluation(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  traceId: string
+): Promise<void> {
+  const { searchParams } = parseUrl(req.url);
+  const refresh = searchParams.get("refresh") === "true";
+  const semantic = searchParams.get("semantic") === "true";
+
+  const events = getEventsByTrace(traceId);
+  if (events.length === 0) {
+    sendJson(res, 404, { error: "trace_not_found" });
+    return;
+  }
+
+  let evaluation = !refresh ? getStoredEvaluation(traceId) : null;
+  const needsSemantic =
+    semantic && !evaluation?.scores.some((s) => s.name === "answer_groundedness");
+
+  if (!evaluation || refresh || needsSemantic) {
+    evaluation = await runAndPersistEvaluation(traceId, { semantic });
+  }
+
+  if (!evaluation) {
+    sendJson(res, 404, { error: "evaluation_unavailable" });
+    return;
+  }
+
+  sendJson(res, 200, evaluation);
 }
 
 function handleGetCache(_req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse): void {
@@ -382,6 +466,7 @@ Do not output any markdown code blocks, only the raw JSON.`;
 
     const finalAnalysis = {
       model: modelName,
+      isFallback: false,
       rootCause: (parsedAnalysis as Record<string, unknown>).rootCause || "Unknown root cause",
       explanation: (parsedAnalysis as Record<string, unknown>).explanation || "No explanation provided.",
       suggestedFix: (parsedAnalysis as Record<string, unknown>).suggestedFix || "No fix suggested.",
@@ -396,6 +481,7 @@ Do not output any markdown code blocks, only the raw JSON.`;
 
     const fallbackAnalysis = {
       model: "Fallback Mock Analysis (Ollama not reachable)",
+      isFallback: true,
       rootCause: "Unexpected application exception.",
       explanation: `Analysis of trace ID ${traceId.slice(0, 8)}:\nThe \`${nodeName}\` agent threw an exception.\n\nError message:\n>>> ${errorMessage}\n\nThe system could not reach the local Ollama instance (${modelName}) at http://localhost:11434 to perform a real root-cause analysis.`,
       suggestedFix: `Ensure Ollama is installed, running, and the correct model is pulled (\`ollama run ${modelName}\`).`,
@@ -428,7 +514,6 @@ export function handleRoute(req: import("node:http").IncomingMessage, res: impor
   }
 
   if (req.method === "GET" && pathname === "/health") {
-    const { dbPath } = require("./db");
     sendJson(res, 200, { status: "ok", db: dbPath });
     return;
   }
@@ -453,6 +538,12 @@ export function handleRoute(req: import("node:http").IncomingMessage, res: impor
     return;
   }
 
+  const traceDetailMatch = pathname.match(/^\/v1\/traces\/([^/]+)$/);
+  if (req.method === "GET" && traceDetailMatch) {
+    handleGetTrace(req, res, traceDetailMatch[1]);
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/v1/cache") {
     handleGetCache(req, res);
     return;
@@ -466,6 +557,15 @@ export function handleRoute(req: import("node:http").IncomingMessage, res: impor
   const traceMatch = pathname.match(/^\/v1\/traces\/([^/]+)\/events$/);
   if (req.method === "GET" && traceMatch) {
     handleGetTraceEvents(req, res, traceMatch[1]);
+    return;
+  }
+
+  const evaluationMatch = pathname.match(/^\/v1\/traces\/([^/]+)\/evaluation$/);
+  if (req.method === "GET" && evaluationMatch) {
+    handleGetTraceEvaluation(req, res, evaluationMatch[1]).catch((error) => {
+      console.error("evaluation error:", error);
+      sendJson(res, 500, { error: "evaluation_failed" });
+    });
     return;
   }
 

@@ -39,7 +39,25 @@ function deriveFlowName(eventsForTrace: Array<{ event_type: string; parent_span_
   return "Unnamed Flow";
 }
 
-function summarizeStatus(hasError: boolean, lastEventType: string | undefined): string {
+function summarizeStatusFromSummary(
+  summary: import("@agentglass/sdk-ts/browser").TraceSummary | undefined,
+  hasError: boolean,
+  lastEventType: string | undefined
+): string {
+  if (summary?.status) {
+    switch (summary.status) {
+      case "success":
+        return "Completed";
+      case "blocked":
+        return "Blocked";
+      case "error":
+        return "Error";
+      case "running":
+        return "In progress";
+      default:
+        return "Unknown";
+    }
+  }
   if (hasError) return "Error";
   if (lastEventType === "agent_end") return "Completed";
   return "In progress";
@@ -82,14 +100,19 @@ export default function TraceSelector({
         shortId: trace.trace_id.slice(0, 8),
         flowName: deriveFlowName(traceEvents),
         eventCount: trace.event_count,
-        nodeCount: spanIds.size,
-        hasError: trace.has_error,
+        nodeCount: trace.summary?.node_count ?? spanIds.size,
+        hasError: trace.has_error || trace.summary?.status === "error",
         durationLabel:
-          trace.last_timestamp > trace.first_timestamp
-            ? formatDuration(trace.first_timestamp, trace.last_timestamp)
-            : "< 1ms",
+          trace.summary?.duration_micros !== undefined && trace.summary.duration_micros > 0
+            ? formatDuration(
+                trace.last_timestamp - trace.summary.duration_micros,
+                trace.last_timestamp
+              )
+            : trace.last_timestamp > trace.first_timestamp
+              ? formatDuration(trace.first_timestamp, trace.last_timestamp)
+              : "< 1ms",
         lastSeenLabel: hasMounted ? formatRelativeTime(trace.last_timestamp) : "...",
-        statusLabel: summarizeStatus(trace.has_error, lastEventType),
+        statusLabel: summarizeStatusFromSummary(trace.summary, trace.has_error, lastEventType),
       };
     });
   }, [events, traces, hasMounted]);
@@ -325,7 +348,7 @@ export default function TraceSelector({
                     <span className="trace-selector-option-name">{summary.flowName}</span>
                     <span
                       className={`trace-selector-option-status ${
-                        summary.hasError
+                        summary.statusLabel === "Error" || summary.statusLabel === "Blocked"
                           ? "trace-selector-option-status-error"
                           : "trace-selector-option-status-ok"
                       }`}

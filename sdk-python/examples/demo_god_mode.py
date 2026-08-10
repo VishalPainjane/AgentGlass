@@ -12,7 +12,7 @@ def main():
     client = AgentGlassClient()
     trace_id = client.start_trace()
     
-    print("🚀 Starting Agent with Breakpoint...")
+    print("Starting Agent with Breakpoint...")
     
     # Simulate some initial work
     client.track_event("agent_start", node_name="Initializer", payload={"status": "starting"})
@@ -27,16 +27,16 @@ def main():
     injection = client.breakpoint("UserIntervention")
     
     if injection:
-        print(f"🔥 Agent Resumed with injected data: {injection}")
+        print(f"Agent Resumed with injected data: {injection}")
         # Use the injected data
         client.track_event("agent_start", node_name="Processor", payload={"using_data": injection})
         time.sleep(1)
         client.track_event("agent_end", node_name="Processor", payload={"result": "success"})
     else:
-        print("⌛ Breakpoint resumed without injection (e.g. stop event).")
+        print("Breakpoint resumed without injection (e.g. stop event).")
 
     client.close()
-    print("\n✨ Done!")
+    print("\nDone!")
 
 if __name__ == "__main__":
     main()

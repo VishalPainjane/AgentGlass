@@ -1,164 +1,187 @@
 <div align="center">
   <h1>AgentGlass</h1>
-  <p><strong>The Local-First Observability & Time-Travel Debugger for Autonomous AI Agents.</strong></p>
+  <p><strong>A local-first observability, debugging, and evaluation workbench for AI agents.</strong></p>
 </div>
 
-<p align="center">
-  <img src="./Planner/Interface_agentglass.png" alt="AgentGlass Interface" width="1100"/>
-</p>
+AgentGlass records real agent execution, lets developers inspect and time-travel through failures, compares runs side-by-side, and evaluates agent behavior — without sending traces to a cloud service.
 
-## Why AgentGlass?
-
-When a multi-agent system fails, it doesn't fail loudly with a stack trace. It fails silently through cascading logical errors an agent makes a poor decision, feeds corrupted context to a specialized sub-agent, and triggers a massive loop of API calls.
-
-Existing solutions (LangSmith, Datadog) are cloud-heavy, introduce latency, charge per trace, and force you to send sensitive enterprise context to third-party servers.
-
-**AgentGlass democratizes agent observability.** It brings IDE-level, deterministic step-through debugging locally. Isolate root causes, scrub through exact token paths, and manipulate agent states in real-time, all while keeping your data 100% local on your machine.
-
----
-
-## [Features]
-
-- [-] **Local-First Architecture:** A lightning-fast Node.js daemon and SQLite persistence engine that runs completely on your machine.
-- [-] **God Mode Live Injection:** A real-time command REPL that lets you inject state, trigger tool calls, and override LLM responses live while the multi-agent system is running.
-- [-] **Terminal UI (TUI):** A keyboard-driven terminal interface rendering the agent graph, event timeline, and inspector using ASCII/Unicode — perfect for power users.
-- [-] **Local Root-Cause Analysis (AutoRCA):** When an agent crashes, AutoRCA automatically uses a local Ollama model to analyze the error and suggest fixes without sending data off-machine.
-- [-] **RAG X-Ray Panel:** When a retriever tool executes, visually inspect retrieved chunks, vector distances, and metadata directly in the dashboard.
-- [-] **Deterministic Time-Travel:** Use the timeline scrubber to perfectly rewind your multi-agent execution graph to the exact microsecond an error occurred.
-- [-] **GitFork (Execution Branching):** Compare alternative execution paths side-by-side. Did tweaking a prompt break downstream tools? Visually diff terminal payloads directly in the dashboard without writing mock tests.
-- [-] **VCR LLM Cache:** Save real API dollars during iterative debugging. Wrap LLM calls with `@agentglass_vcr` to deterministically cache API responses locally and replay them in `0.00s`.
-- [-] **Interactive State Injection:** Set visual breakpoints, edit payloads directly in the browser's Monaco Editor, and inject new state directly into a paused python execution.
-- [-] **Light & Dark Mode:** Sleek glassmorphic UI equipped with a first-class Light/Dark mode toggle to fit your working environment.
-- [-] **First-Class Framework Support:** Deep auto-instrumentation for LangGraph.
-- [-] **OpenTelemetry Native:** Drop-in `AgentGlassSpanProcessor` seamlessly converts standard OTel spans into AgentGlass events. No need to rewrite your instrumentation.
-- [-] **Blob Payload Offloading:** Massive LLM context payloads are intelligently offloaded to a local `.agentglass/blobs` directory, ensuring your UI and DB stay ultra-fast.
-- [-] **Idempotent Telemetry:** Built-in deduplication handles flaky network flushes and prevents duplicate telemetry events.
-
----
-
-## [Quick Start]
-
-### 1. Start the AgentGlass Local Stack
-
-You can run the Daemon and Dashboard with a single command via NPX and PNPM:
-
-```bash
-npx pnpm install
-npx pnpm build
-npx pnpm dev:up
+```text
+OBSERVE → DEBUG → UNDERSTAND → EVALUATE → COMPARE
 ```
 
-_This starts the Daemon on `http://127.0.0.1:8765` and the Dashboard on `http://localhost:3456`._
+## Demo (5–7 minutes)
 
-### 2. Instrument Your Python Agents
-
-Install the Python SDK:
-
-```bash
-pip install agentglass-python
+```powershell
+pnpm install
+pnpm demo -- --compare
 ```
 
-**Using Native SDK (Zero-config Context Propagation):**
+Open **http://localhost:3456/live** (graph + timeline) and **http://localhost:3456/compare** (Variant A vs B).
+
+> Use port **3456** only (`pnpm dev:dashboard`). Older `next start` instances on other ports may show stale UI.
+
+### Example agents (`sdk-python/examples`)
+
+| Script | What it teaches |
+|--------|-----------------|
+| `demo_support_research_agent.py` | Full LangGraph + Ollama; Variant A (SUCCESS) vs B (BLOCKED) for Compare |
+| `demo_incident_debug_agent.py` | **Regression story**: broken PolicyGate → trace back in UI → fix via inject or `--mode fixed` |
+| `demo_refund_triage_agent.py` | Simpler graph + God Mode pause at HumanReview |
+| `demo_god_mode.py` | Minimal breakpoint / inject loop |
+
+```powershell
+cd sdk-python
+pip install -e ".[langgraph,ollama]"
+
+# Golden compare demo
+python examples/demo_support_research_agent.py --variant a
+python examples/demo_support_research_agent.py --variant b
+
+# Incident debug (repro → trace → fix)
+python examples/demo_incident_debug_agent.py --mode repro
+python examples/demo_incident_debug_agent.py              # pauses at PolicyGate for inject
+python examples/demo_incident_debug_agent.py --mode fixed
+```
+
+**God Mode / Inject** only works while the Python process is **paused** at a `client.breakpoint()` — not on traces that already finished.
+
+## What is AgentGlass?
+
+When a multi-agent system fails, it often fails silently — weak retrieval, a validator rejection, a blocked downstream step. AgentGlass captures the full execution graph locally and makes the failure chain visible in seconds.
+
+```text
+Agent runs steps → SDK records events → Daemon stores trace → Dashboard shows graph + timeline
+```
+
+On **/live**: React Flow graph is the main view (timeline left, node inspector right). Evaluation details live on **/compare** and via `agentglass eval`.
+
+**Not a Langfuse clone.** AgentGlass is an exploration of what an evaluation and debugging loop for agentic systems can look like, built on a time-travel debugging foundation.
+
+## Architecture
+
+```text
+                    Agent Application
+                           │
+                    AgentGlass SDK
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │   Local Daemon      │
+                │                     │
+                │ ingestion           │
+                │ validation          │
+                │ trace analysis      │
+                │ evaluation          │
+                └─────────┬───────────┘
+                          │
+                    SQLite / blobs
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+          Dashboard                 CLI
+              │
+      ┌───────┼────────┐
+      ▼       ▼        ▼
+    Trace   Debug    Evaluate
+      │       │        │
+      └───────┼────────┘
+              ▼
+           Compare
+```
+
+**Data flow:** Agent → SDK → Daemon (SQLite) → WebSocket → Dashboard. LLM inference stays on **localhost** (Ollama). No trace leaves your machine unless you configure a cloud provider explicitly.
+
+## Feature Matrix
+
+| Capability | Status |
+|------------|--------|
+| Local tracing | ✅ |
+| LangGraph instrumentation | ✅ |
+| Live graph | ✅ |
+| Timeline debugging | ✅ |
+| Node inspection (LLM telemetry) | ✅ |
+| God Mode | ✅ (experimental — state injection) |
+| Trace comparison | ✅ |
+| Trace summaries | ✅ |
+| Deterministic evaluation | ✅ |
+| Semantic evaluation (Ollama) | ✅ (`--semantic`) |
+| Evaluation datasets | Planned |
+| Experiments / regression gates | Planned |
+| Multi-user / cloud | Planned |
+| True execution fork | Planned |
+
+## Evaluation
+
+Deterministic evaluators run without Ollama:
+
+```bash
+agentglass eval <trace-id>
+```
+
+| Evaluator | Type | What it measures |
+|-----------|------|------------------|
+| `task_completion:v1` | deterministic | Did execution reach a successful terminal state? |
+| `tool_efficiency:v1` | deterministic | Tool/retrieval calls vs **support-research workflow baseline** (not universal) |
+| `loop_detection:v1` | deterministic | Repeated execution cycles without progress |
+| `answer_groundedness:v1` | LLM (Ollama) | Is the final answer supported by retrieved evidence? |
+
+```bash
+agentglass eval <trace-id> --semantic   # adds answer_groundedness via local Ollama
+```
+
+## Quick Start
+
+```bash
+pnpm install
+pnpm dev:up          # daemon + dashboard only
+# or
+pnpm demo -- --compare   # full golden demo (Variant A + B)
+```
+
+- Dashboard: `http://localhost:3456`
+- Daemon: `http://127.0.0.1:8765`
+
+### Instrument a Python agent
+
+```bash
+cd sdk-python
+pip install -e ".[langgraph,ollama]"
+python examples/demo_support_research_agent.py --variant a
+```
 
 ```python
 from agentglass_python import AgentGlassClient
+from agentglass_python.langgraph_adapter import instrument_langgraph
 
 client = AgentGlassClient()
 trace_id = client.start_trace()
-
-# Create nested Spans effortlessly
-with client.create_span("agent_start", "ResearcherAgent", {"query": "Quantum gravity"}):
-    # Do LLM work...
-    client.track(event_type="tool_call", node_name="WikipediaSearch", payload={"term": "Quantum"})
+instrumented = instrument_langgraph(app, client, trace_id=trace_id)
+result = instrumented.invoke(initial_state)
+client.close()
 ```
 
-**Using OpenTelemetry:**
+## Monorepo Structure
 
-```python
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from agentglass_python.otel import AgentGlassSpanProcessor
-from agentglass_python import AgentGlassClient
+- `apps/dashboard` — Next.js debugger UI
+- `apps/daemon` — HTTP/WebSocket ingest + SQLite + evaluation
+- `packages/sdk-ts` — schemas, trace analyzer, evaluators
+- `packages/cli` — `agentglass up`, `demo`, `eval`
+- `sdk-python` — Python instrumentation SDK
 
-provider = TracerProvider()
-provider.add_span_processor(AgentGlassSpanProcessor(AgentGlassClient()))
-trace.set_tracer_provider(provider)
-```
+## Limitations
 
-**Using LangGraph:**
+- Evaluation is per-trace today — no datasets or experiment batches yet
+- `tool_efficiency:v1` baseline is scoped to the support-research demo workflow
+- Semantic evaluation requires local Ollama; gracefully unavailable if Ollama is down
+- God Mode is experimental
+- Compare is diff-only (not runtime fork/replay)
 
-```python
-from agentglass_python.langgraph_adapter import instrument_langgraph
+## Roadmap
 
-# Takes your existing compiled LangGraph and wraps it
-instrumented_app = instrument_langgraph(app, client)
-
-async for event in instrumented_app.astream({"messages": [...]}, stream_mode="values"):
-    print(event)
-```
-
-### 3. Open the Dashboard!
-
-Navigate to `http://localhost:3456` in your browser. As your Python agents execute, the graph will populate in real-time.
+Turn failed traces into reusable evaluation datasets, run experiments against new agent versions, and add CI regression gates.
 
 ---
 
-## [Monorepo Structure]
-
-- `apps/dashboard` - The React 19 / Next.js glassmorphism control center. Uses Zustand for deterministic timeline slicing.
-- `apps/daemon` - Express/WebSocket ingest server backed by `better-sqlite3`.
-- `packages/sdk-ts` - Core TypeScript interfaces and Zod schemas shared across the monorepo.
-- `packages/cli` - Command-line interface for managing the local stack.
-- `sdk-python` - The production-hardened Python instrumentation SDK.
-
----
-
-## [Advanced Workflows]
-
-### 1. State Injection
-
-AgentGlass allows you to pause your agents and modify their memory from the dashboard!
-
-1. In your python code, add a wait block:
-   ```python
-   # The script will suspend here until you manually inject state from the UI
-   new_state = client.wait_for_injection(trace_id, span_id, timeout=300)
-   if new_state:
-       my_agent_state.update(new_state)
-   ```
-2. Run your code. It will pause.
-3. Open the AgentGlass dashboard, click on the paused node, edit the JSON in the sidebar, and click **Inject State**.
-4. The Python execution will instantly resume with your overriding context!
-
-### 2. Zero-Cost Debugging (VCR Cache)
-
-Stop burning OpenAI credits while fixing a `KeyError` three steps deep in your agent chain.
-
-1. Import the AgentGlass VCR cache:
-   ```python
-   from agentglass_python import agentglass_vcr
-   import openai
-   ```
-2. Wrap your heavy LLM execution logic:
-   ```python
-   @agentglass_vcr
-   def run_llm(prompt):
-       return openai.ChatCompletion.create(model="gpt-4", messages=[{"role": "user", "content": prompt}])
-   ```
-3. Run it once, and it will hit the network. Run it again, and it will return instantly. The Dashboard will render a sleek **"CACHE HIT"** badge on the node so you never lose track of what's real and what's simulated.
-4. Clean the cache via CLI anytime: `agentglass cache clear`.
-
-### 3. GitFork (Branch Comparison)
-
-Use the new **Compare Traces** page to visually diff two different execution runs side-by-side.
-
-1. Run your agent with Prompt A (creates Trace 1).
-2. Tweak your agent and run it with Prompt B (creates Trace 2).
-3. Open the Dashboard > **Compare Traces**. Select Trace 1 as Primary and Trace 2 as Compare.
-4. Instantly see how your changes impacted the terminal payload!
-
----
-
-## License
-
-MIT
+<p align="center">
+  <img src="./Planner/Interface_agentglass.png" alt="AgentGlass Interface" width="900"/>
+</p>

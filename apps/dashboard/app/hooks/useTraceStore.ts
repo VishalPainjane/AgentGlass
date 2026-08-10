@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useMemo } from "react";
+import type { TraceSummary } from "@agentglass/sdk-ts/browser";
 import type { PersistedEvent, TraceMetadata } from "../lib/eventHelpers";
 
 /* ------------------------------------------------------------------ */
@@ -12,6 +13,7 @@ interface TraceStoreState {
   /* --- data --- */
   events: PersistedEvent[];
   traces: TraceMetadata[];
+  summaries: Record<string, TraceSummary>;
   selectedTraceId: string | null;
   compareTraceId: string | null;
   selectedSpanId: string | null;
@@ -25,8 +27,11 @@ interface TraceStoreState {
 
   /* --- actions --- */
   addEvent: (event: PersistedEvent) => void;
-  bootstrap: (events: PersistedEvent[]) => void;
+  bootstrap: (events: PersistedEvent[], summaries?: TraceSummary[]) => void;
   setTraces: (traces: TraceMetadata[]) => void;
+  setSummary: (summary: TraceSummary) => void;
+  setSummaries: (summaries: TraceSummary[]) => void;
+  fetchTraces: () => Promise<void>;
   selectTrace: (traceId: string | null) => void;
   setCompareTraceId: (traceId: string | null) => void;
   selectNode: (spanId: string | null) => void;
@@ -47,6 +52,7 @@ interface TraceStoreState {
 export const useTraceStore = create<TraceStoreState>((set, get) => ({
   events: [],
   traces: [],
+  summaries: {},
   selectedTraceId: null,
   compareTraceId: null,
   selectedSpanId: null,
@@ -88,6 +94,7 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
           first_timestamp: event.timestamp,
           last_timestamp: event.timestamp,
           has_error: event.event_type === "error",
+          summary: state.summaries[event.trace_id],
         });
       }
 
@@ -99,7 +106,7 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
     });
   },
 
-  bootstrap: (events) => {
+  bootstrap: (events, summaries = []) => {
     // Deduplicate by ingest_id and sort by timestamp for stable ordering
     const seen = new Set<string>();
     const deduped: PersistedEvent[] = [];
@@ -111,6 +118,11 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
       }
     }
     deduped.sort((a, b) => a.timestamp - b.timestamp);
+
+    const summaryMap: Record<string, TraceSummary> = { ...get().summaries };
+    for (const summary of summaries) {
+      summaryMap[summary.trace_id] = summary;
+    }
 
     // Build trace metadata from deduplicated events
     const traceMap = new Map<string, TraceMetadata>();
@@ -128,17 +140,69 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
           first_timestamp: event.timestamp,
           last_timestamp: event.timestamp,
           has_error: event.event_type === "error",
+          summary: summaryMap[event.trace_id],
         });
+      }
+    }
+
+    for (const [traceId, summary] of Object.entries(summaryMap)) {
+      const existing = traceMap.get(traceId);
+      if (existing) {
+        existing.summary = summary;
       }
     }
 
     const traces = Array.from(traceMap.values());
     const selectedTraceId = traces.length > 0 ? traces[0].trace_id : null;
 
-    set({ events: deduped, traces, selectedTraceId });
+    set({ events: deduped, traces, summaries: summaryMap, selectedTraceId });
   },
 
-  setTraces: (traces) => set({ traces }),
+  setTraces: (traces) => {
+    const summaryMap = { ...get().summaries };
+    for (const trace of traces) {
+      if (trace.summary) {
+        summaryMap[trace.trace_id] = trace.summary;
+      }
+    }
+    set({ traces, summaries: summaryMap });
+  },
+
+  setSummary: (summary) => {
+    set((state) => {
+      const summaries = { ...state.summaries, [summary.trace_id]: summary };
+      const traces = state.traces.map((trace) =>
+        trace.trace_id === summary.trace_id ? { ...trace, summary } : trace
+      );
+      return { summaries, traces };
+    });
+  },
+
+  setSummaries: (summaries) => {
+    set((state) => {
+      const summaryMap = { ...state.summaries };
+      for (const summary of summaries) {
+        summaryMap[summary.trace_id] = summary;
+      }
+      const traces = state.traces.map((trace) => ({
+        ...trace,
+        summary: summaryMap[trace.trace_id] ?? trace.summary,
+      }));
+      return { summaries: summaryMap, traces };
+    });
+  },
+
+  fetchTraces: async () => {
+    try {
+      const { daemonHttp } = await import("../lib/daemonApi");
+      const res = await fetch(daemonHttp("/v1/traces"));
+      if (!res.ok) return;
+      const data = (await res.json()) as { traces: TraceMetadata[] };
+      get().setTraces(data.traces);
+    } catch (err) {
+      console.error("Failed to fetch traces:", err);
+    }
+  },
 
   selectTrace: (traceId) => {
     set({ selectedTraceId: traceId, selectedSpanId: null, playbackTimestamp: null });
@@ -163,9 +227,19 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
   
   setPlaybackTimestamp: (timestamp) => set({ playbackTimestamp: timestamp }),
 
-  clearEvents: () => set({ events: [], traces: [], selectedTraceId: null, compareTraceId: null, selectedSpanId: null, playbackTimestamp: null, isDemoMode: false }),
+  clearEvents: () =>
+    set({
+      events: [],
+      traces: [],
+      summaries: {},
+      selectedTraceId: null,
+      compareTraceId: null,
+      selectedSpanId: null,
+      playbackTimestamp: null,
+      isDemoMode: false,
+    }),
 
-  setIsFetching: (isFetching) => set({ isFetching: true }),
+  setIsFetching: (isFetching) => set({ isFetching }),
 
   setDenseMode: (denseMode) => set({ denseMode }),
 
@@ -213,6 +287,30 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
 /* ------------------------------------------------------------------ */
 /*  Derived Hooks (memoized to avoid infinite re-render loops)        */
 /* ------------------------------------------------------------------ */
+
+/** Canonical persisted summary for the selected trace. */
+export function useSelectedTraceSummary(): TraceSummary | null {
+  const selectedTraceId = useTraceStore((s) => s.selectedTraceId);
+  const summaries = useTraceStore((s) => s.summaries);
+  const traces = useTraceStore((s) => s.traces);
+
+  return useMemo(() => {
+    if (!selectedTraceId) return null;
+    return summaries[selectedTraceId] ?? traces.find((t) => t.trace_id === selectedTraceId)?.summary ?? null;
+  }, [selectedTraceId, summaries, traces]);
+}
+
+/** Canonical persisted summary for the compare trace. */
+export function useCompareTraceSummary(): TraceSummary | null {
+  const compareTraceId = useTraceStore((s) => s.compareTraceId);
+  const summaries = useTraceStore((s) => s.summaries);
+  const traces = useTraceStore((s) => s.traces);
+
+  return useMemo(() => {
+    if (!compareTraceId) return null;
+    return summaries[compareTraceId] ?? traces.find((t) => t.trace_id === compareTraceId)?.summary ?? null;
+  }, [compareTraceId, summaries, traces]);
+}
 
 /** Events filtered to the currently selected trace AND playback timestamp. */
 export function useSelectedTraceEvents(): PersistedEvent[] {

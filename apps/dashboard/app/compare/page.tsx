@@ -5,6 +5,8 @@ import TraceComparePanel from "../components/TraceComparePanel";
 import { useDaemonSocket } from "../hooks/useDaemonSocket";
 
 export default function ComparePage() {
+  useDaemonSocket();
+
   return (
     <div className="dashboard">
       <TopBar mode="compare" />
