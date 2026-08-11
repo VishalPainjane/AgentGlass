@@ -2,6 +2,10 @@
   "name": "agentglass-monorepo",
   "private": true,
   "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": "9.12.0"
+  },
   "scripts": {
     "dev": "turbo run dev --parallel",
     "dev:daemon": "pnpm --filter @agentglass/daemon dev",

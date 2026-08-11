@@ -1,8 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm install",
+  "installCommand": "cd ../.. && corepack enable && corepack prepare pnpm@9.12.0 --activate && pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm build --filter=@agentglass/dashboard",
   "env": {
-    "NEXT_PUBLIC_SHOWCASE_MODE": "true"
+    "NEXT_PUBLIC_SHOWCASE_MODE": "true",
+    "ENABLE_EXPERIMENTAL_COREPACK": "1"
   }
 }
