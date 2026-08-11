@@ -1,18 +1,27 @@
 /**
  * Landing page helper — checks daemon availability before sending users to /live.
- * Does NOT inject synthetic traces. Real telemetry comes from the Python SDK.
+ * Showcase deployments skip the daemon and load bundled traces instead.
  */
 
-const DAEMON_HEALTH_URL = "http://127.0.0.1:8765/health";
+import { isShowcaseMode } from "./showcaseMode";
 
 export async function checkDaemonReady(): Promise<void> {
-  const response = await fetch(DAEMON_HEALTH_URL, {
+  if (isShowcaseMode()) {
+    return;
+  }
+
+  const { getDaemonHttpBaseUrl } = await import("./daemonApi");
+  const response = await fetch(`${getDaemonHttpBaseUrl()}/health`, {
     signal: AbortSignal.timeout(3_000),
   });
 
   if (!response.ok) {
     throw new Error(`Daemon health check failed (HTTP ${response.status})`);
   }
+}
+
+export function isPublicShowcase(): boolean {
+  return isShowcaseMode();
 }
 
 export function getDemoStartInstructions(): string {

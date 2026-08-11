@@ -16,9 +16,12 @@ import { useEffect, useRef, useCallback } from "react";
 import { useTraceStore } from "./useTraceStore";
 import type { PersistedEvent } from "../lib/eventHelpers";
 import { getDaemonWsUrl } from "../lib/daemonApi";
+import { isShowcaseMode } from "../lib/showcaseMode";
+import { loadShowcaseData } from "../lib/showcaseData";
 
 const DEMO_FALLBACK_ENABLED =
   typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_FALLBACK === "true";
+const SHOWCASE_MODE = isShowcaseMode();
 
 const BASE_RECONNECT_MS = 1500;
 const MAX_RECONNECT_MS = 16000;
@@ -33,10 +36,13 @@ export function useDaemonSocket(): void {
 
   const addEvent = useTraceStore((s) => s.addEvent);
   const bootstrap = useTraceStore((s) => s.bootstrap);
+  const setTraces = useTraceStore((s) => s.setTraces);
+  const setSummaries = useTraceStore((s) => s.setSummaries);
   const setSummary = useTraceStore((s) => s.setSummary);
   const fetchTraces = useTraceStore((s) => s.fetchTraces);
   const setConnectionStatus = useTraceStore((s) => s.setConnectionStatus);
   const setDemoMode = useTraceStore((s) => s.setDemoMode);
+  const selectTrace = useTraceStore((s) => s.selectTrace);
 
   const setStatusDebounced = useCallback(
     (status: "connecting" | "connected" | "disconnected") => {
@@ -149,6 +155,35 @@ export function useDaemonSocket(): void {
   }, [connectWs]);
 
   useEffect(() => {
+    if (SHOWCASE_MODE) {
+      mountedRef.current = true;
+      setStatusDebounced("connecting");
+
+      void loadShowcaseData()
+        .then((data) => {
+          if (!mountedRef.current) return;
+
+          const summaries = Object.values(data.summaries);
+          bootstrap(data.events, summaries);
+          setTraces(data.traces);
+          setSummaries(summaries);
+          setDemoMode(true);
+          setStatusDebounced("connected");
+
+          if (data.defaultTraceId) {
+            selectTrace(data.defaultTraceId);
+          }
+        })
+        .catch((error) => {
+          console.error("[AgentGlass] Failed to load showcase data:", error);
+          setStatusDebounced("disconnected");
+        });
+
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+
     if (DEMO_FALLBACK_ENABLED) {
       console.warn(
         "[AgentGlass] NEXT_PUBLIC_DEMO_FALLBACK=true — synthetic traces are enabled for UI development only."
@@ -180,5 +215,5 @@ export function useDaemonSocket(): void {
         wsRef.current.close();
       }
     };
-  }, [connectWs]);
+  }, [bootstrap, connectWs, selectTrace, setDemoMode, setSummaries, setStatusDebounced, setTraces]);
 }

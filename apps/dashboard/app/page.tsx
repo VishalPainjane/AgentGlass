@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { useEffect, useState } from "react";
-import { checkDaemonReady, getDemoStartInstructions } from "./lib/demoRunner";
+import { checkDaemonReady, getDemoStartInstructions, isPublicShowcase } from "./lib/demoRunner";
 import PipelineGraphPreview from "./components/PipelineGraphPreview";
 
 const featureCards = [
@@ -41,6 +41,7 @@ const featureCards = [
 
 export default function LandingPage() {
   const [mounted, setMounted] = useState(false);
+  const showcase = isPublicShowcase();
   
   const { scrollYProgress } = useScroll();
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "30%"]);
@@ -53,7 +54,14 @@ export default function LandingPage() {
     setMounted(true);
   }, []);
 
+  const isShowcase = isPublicShowcase();
+
   const handleOpenLive = async () => {
+    if (isShowcase) {
+      window.location.href = "/live";
+      return;
+    }
+
     setDemoLoading(true);
     setDemoStatus("Checking daemon…");
 
@@ -133,7 +141,7 @@ export default function LandingPage() {
         >
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-sm text-slate-300 mb-8 backdrop-blur-sm">
             <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            AgentGlass V2 is now live
+            {showcase ? "Live interactive demo — no install required" : "AgentGlass V2 is now live"}
           </div>
           
           <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-white mb-6 leading-[1.1]">
@@ -149,24 +157,47 @@ export default function LandingPage() {
           </p>
           
           <div className="flex items-center justify-center gap-4 flex-wrap">
-            <Link
-              href="/docs"
-              className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                <span>▶</span> Run Demo: pnpm demo -- --compare
-              </span>
-            </Link>
-            <button 
-              onClick={handleOpenLive}
-              disabled={demoLoading}
-              className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm disabled:opacity-50"
-            >
-              {demoLoading ? (demoStatus || "Checking…") : "Open Live Dashboard"}
-            </button>
+            {showcase ? (
+              <>
+                <Link
+                  href="/live"
+                  className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                >
+                  <span className="relative z-10 flex items-center gap-2">
+                    <span>▶</span> Explore Live Graph
+                  </span>
+                </Link>
+                <Link
+                  href="/compare"
+                  className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm"
+                >
+                  Compare Success vs Blocked
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/docs"
+                  className="group relative px-6 py-3 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                >
+                  <span className="relative z-10 flex items-center gap-2">
+                    <span>▶</span> Run Demo: pnpm demo -- --compare
+                  </span>
+                </Link>
+                <button 
+                  onClick={handleOpenLive}
+                  disabled={demoLoading}
+                  className="px-6 py-3 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-all backdrop-blur-sm disabled:opacity-50"
+                >
+                  {demoLoading ? (demoStatus || "Checking…") : "Open Live Dashboard"}
+                </button>
+              </>
+            )}
           </div>
           <p className="mt-4 text-sm text-slate-500 font-mono">
-            One-time: .\scripts\setup-ollama.ps1 · Every run: pnpm demo -- --compare
+            {showcase
+              ? "Real LangGraph traces · Refund triage + support agent pipeline · Clone repo for full local stack"
+              : "One-time: .\\scripts\\setup-ollama.ps1 · Every run: pnpm demo -- --compare"}
           </p>
         </motion.div>
 

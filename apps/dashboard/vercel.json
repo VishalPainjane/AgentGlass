@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm build --filter=@agentglass/dashboard",
+  "env": {
+    "NEXT_PUBLIC_SHOWCASE_MODE": "true"
+  }
+}

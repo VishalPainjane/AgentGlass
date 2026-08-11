@@ -193,6 +193,11 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
   },
 
   fetchTraces: async () => {
+    const { isShowcaseMode } = await import("../lib/showcaseMode");
+    if (isShowcaseMode()) {
+      return;
+    }
+
     try {
       const { daemonHttp } = await import("../lib/daemonApi");
       const res = await fetch(daemonHttp("/v1/traces"));
@@ -244,6 +249,14 @@ export const useTraceStore = create<TraceStoreState>((set, get) => ({
   setDenseMode: (denseMode) => set({ denseMode }),
 
   fetchTraceEvents: async (traceId) => {
+    const { isShowcaseMode } = await import("../lib/showcaseMode");
+    if (isShowcaseMode()) {
+      const hasEvents = get().events.some((e) => e.trace_id === traceId);
+      if (hasEvents) {
+        return;
+      }
+    }
+
     try {
       set({ isFetching: true });
       // Import dynamically to avoid circular dependency or SSR issues

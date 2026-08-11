@@ -1,0 +1,27 @@
+﻿{
+    "compare":  {
+                    "left":  "pipeline-success",
+                    "right":  "pipeline-blocked"
+                },
+    "traces":  [
+                   {
+                       "label":  "Refund Triage (LangGraph)",
+                       "default":  true,
+                       "id":  "refund-triage",
+                       "trace_id":  "3005d022-7f5a-47c4-8929-c4969e8452eb"
+                   },
+                   {
+                       "label":  "Support Agent — Success",
+                       "default":  false,
+                       "id":  "pipeline-success",
+                       "trace_id":  "7cb15f20-12d0-4a48-9193-7d3e371f8e6f"
+                   },
+                   {
+                       "label":  "Support Agent — Blocked",
+                       "default":  false,
+                       "id":  "pipeline-blocked",
+                       "trace_id":  "2e985af0-7210-49c8-81fc-78f0213e6418"
+                   }
+               ],
+    "version":  1
+}

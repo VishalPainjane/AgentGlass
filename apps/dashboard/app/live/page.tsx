@@ -16,12 +16,14 @@ import EventTimeline from "../components/EventTimeline";
 import NodeInspector from "../components/NodeInspector";
 import TimeScrubber from "../components/TimeScrubber";
 import GodModeDrawer from "../components/GodModeDrawer";
+import ShowcaseBanner from "../components/ShowcaseBanner";
 
 export default function LiveGraphPage() {
   const [godModeOpen, setGodModeOpen] = useState(false);
 
   return (
     <div className="dashboard" style={{ position: "relative" }}>
+      <ShowcaseBanner />
       <TopBar />
       <div className="dashboard-body">
         <EventTimeline />
