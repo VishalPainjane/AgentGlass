@@ -6,6 +6,7 @@
 
 import { motion } from "framer-motion";
 import { useTraceStore } from "../hooks/useTraceStore";
+import { isShowcaseMode } from "../lib/showcaseMode";
 
 const STATUS_MAP = {
   connected: { color: "#4ade80", label: "Connected" },
@@ -16,8 +17,9 @@ const STATUS_MAP = {
 export default function ConnectionStatus() {
   const connectionStatus = useTraceStore((s) => s.connectionStatus);
   const isDemoMode = useTraceStore((s) => s.isDemoMode);
+  const showcase = isShowcaseMode();
   const { color, label } = isDemoMode
-    ? { color: "#60a5fa", label: "Demo Mode" }
+    ? { color: "#60a5fa", label: showcase ? "Showcase" : "Demo Mode" }
     : STATUS_MAP[connectionStatus];
 
   return (
